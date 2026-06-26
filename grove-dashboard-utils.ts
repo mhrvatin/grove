@@ -20,6 +20,18 @@ export type Row = {
 
 export type LogSection = { key: 'up' | 'be' | 'fe'; header: string; path: string }
 
+export type RowStatus = 'live' | 'failed' | 'stopped'
+
+// Three display states from stateless discovery: a live port is `live`; an
+// instance file with no live port is `failed` (grove-up always writes the record
+// even on a no-bind, pid 0 — UP-6 — so file-present-but-dead means the start
+// gave up); no instance file is `stopped`.
+export function rowStatus(hasInstance: boolean, portLive: boolean): RowStatus {
+  if (portLive) return 'live'
+  if (hasInstance) return 'failed'
+  return 'stopped'
+}
+
 function basename(p: string): string {
   return p.split('/').filter(Boolean).pop() ?? p
 }

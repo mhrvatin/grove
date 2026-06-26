@@ -94,11 +94,14 @@ assignment, stateless discovery, the dashboard, and the log viewer.
 |----|--------|-------------|
 | DASH-1 | Done | `just grove` SHALL start a `Bun.serve` HTTP dashboard bound to `127.0.0.1` only, detached in the background. It SHALL be idempotent — if already listening on its port, just print the URL. |
 | DASH-2 | Done | `just grove-stop` SHALL kill only the dashboard's own listener; it SHALL NOT touch running worktree instances. |
-| DASH-3 | Done | The dashboard SHALL render one row per worktree showing: name, the URL as a link, a status dot (running = instance file present **and** a live port probe), start/restart/stop buttons, and a logs toggle. |
+| DASH-3 | Done | The dashboard SHALL render one row per worktree showing: name, the URL as a link, a status dot (states refined by DASH-9), start/restart/stop buttons, and a logs toggle. |
 | DASH-4 | Done | Discovery SHALL be stateless: worktrees from `git worktree list`, ports from `portsFor`, liveness from a port probe. Nothing to reconcile. |
-| DASH-5 | Done | The dashboard SHALL poll a `GET /rows` fragment (~2s) and update in place, without a full-page reload, flicker, or scroll-position loss. Open log rows SHALL stay open across polls. |
+| DASH-5 | Done | The dashboard SHALL poll a `GET /rows` fragment (~2s) and update in place, without a full-page reload, flicker, or scroll-position loss. Open log rows SHALL stay open across polls. **State-changing actions (start/restart/stop) SHALL likewise be issued via same-origin `fetch` and drive the same in-place refresh — never a full-page form POST/redirect — so open log rows and scroll position survive an action.** |
 | DASH-6 | Done | The dashboard SHALL use the full page width. |
 | DASH-7 | Deferred | A richer frontend (build step, multiple files, or a component framework) is deferred. Today the dashboard is a single server-rendered HTML string with a small inline poll script; that is sufficient until the UI outgrows it. |
+| DASH-8 | Done | State-changing POSTs (`/up`, `/down`, `/restart`) SHALL return `204 No Content` (not a redirect), since the client issues them via `fetch` (DASH-5) and refreshes the table itself. |
+| DASH-9 | Done | A row SHALL show one of three status states, by **both** a coloured dot and a text label (never colour alone): `live` (instance file present **and** a live port probe), `failed` (instance file present but **no** live port — grove-up wrote the record on a no-bind, UP-6), and `stopped` (no instance file). A `failed` row SHALL offer a start action and point the user at the launch log. |
+| DASH-10 | Done | After a start or restart is issued, the originating row SHALL show a transient `starting…` pending state (a distinct dot + label, actions disabled) until a subsequent poll observes it `live` or `failed`, or a ceiling (~65s, just past grove-up's worst-case bind wait — 30s per port, BE then FE sequentially, so ~60s for a two-port failure) lapses. This bridges the bind window; statelessness (DASH-4) means it is tracked client-side, not on the server. |
 
 ## 6. Log viewer (`LOG`)
 

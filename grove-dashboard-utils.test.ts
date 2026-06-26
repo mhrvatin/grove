@@ -5,6 +5,7 @@ import {
   instanceLogSections,
   isAllowedName,
   isSameOrigin,
+  rowStatus,
 } from './grove-dashboard-utils.ts'
 import type { GroveConfig } from './grove-instances-utils.ts'
 import { portsFor } from './grove-port-utils.ts'
@@ -47,6 +48,20 @@ describe('buildRows', () => {
 
   test('one row per worktree', () => {
     expect(buildRows(['/repo/a', '/repo/b'], [inst('a')], config)).toHaveLength(2)
+  })
+})
+
+describe('rowStatus', () => {
+  test('a live port is running', () => {
+    expect(rowStatus(true, true)).toBe('live')
+  })
+
+  test('an instance file with a dead port is a failed start (grove-up wrote the record then the port never bound)', () => {
+    expect(rowStatus(true, false)).toBe('failed')
+  })
+
+  test('no instance file is stopped', () => {
+    expect(rowStatus(false, false)).toBe('stopped')
   })
 })
 

@@ -15,6 +15,7 @@ import {
   instanceLogSections,
   isAllowedName,
   isSameOrigin,
+  rowStatus,
 } from './grove-dashboard-utils.ts'
 import {
   groveRoot,
@@ -52,18 +53,26 @@ async function renderRows(): Promise<string> {
   const rows = buildRows(listWorktreeDirs(), readInstances(), config)
   const cells = await Promise.all(
     rows.map(async (r) => {
-      const live = r.running && (await alive(r.fePort))
-      const dot = `<span class="dot ${live ? 'on' : 'off'}"></span>`
+      // Keep the short-circuit: stopped worktrees (no instance file) are never
+      // probed. status splits the old binary dot into live / failed / stopped —
+      // a failed start is an instance file with a dead port (UP-6 writes pid 0).
+      const portLive = r.running && (await alive(r.fePort))
+      const status = rowStatus(r.running, portLive)
+      // Status is shown as a coloured dot AND a text label (never colour alone).
+      const dot = `<span class="dot ${status}" title="${status}" aria-label="${status}"></span> <span class=statuslabel>${status}</span>`
       const link = `<a href="${r.url}" target=_blank>${r.url}</a>`
-      // Show logs toggles an inline log row attached to this worktree (same tab),
-      // tracked client-side so it survives the 2s poll. Never a new page.
+      // Actions fire via fetch (act()), not a form POST, so the page never reloads
+      // and open log rows / scroll survive (DASH-5). Show logs toggles an inline
+      // log row attached to this worktree (same tab), tracked client-side so it
+      // survives the 2s poll. Never a new page.
       const logsBtn = `<button type=button onclick="toggleLogs('${r.name}')">logs</button>`
-      const actions = live
-        ? `<form method=post action="/restart/${r.name}" style=display:inline><button>restart</button></form>
-           <form method=post action="/down/${r.name}" style=display:inline><button>stop</button></form>
-           ${logsBtn}`
-        : `<form method=post action="/up/${r.name}" style=display:inline><button>start</button></form>
-           ${logsBtn}`
+      const actions =
+        status === 'live'
+          ? `<button type=button onclick="act('restart','${r.name}')">restart</button>
+             <button type=button onclick="act('down','${r.name}')">stop</button>
+             ${logsBtn}`
+          : `<button type=button onclick="act('up','${r.name}')">start</button>
+             ${logsBtn}${status === 'failed' ? ' <span class=hint>start failed — see launch log</span>' : ''}`
       // The log row is rendered hidden alongside every worktree; toggleLogs/
       // refreshLogs reveal and fill it. One full-width pane at a time — tabs
       // switch between the launch, BE and FE logs (BE shown first).
@@ -74,7 +83,7 @@ async function renderRows(): Promise<string> {
         <pre id="up-${r.name}" class=logpane hidden></pre>
         <pre id="be-${r.name}" class=logpane></pre>
         <pre id="fe-${r.name}" class=logpane hidden></pre></td></tr>`
-      return `<tr><td>${dot}</td><td>${r.name}</td><td>${link}</td><td>${actions}</td></tr>${logRow}`
+      return `<tr data-name="${r.name}" data-status="${status}"><td>${dot}</td><td>${r.name}</td><td>${link}</td><td>${actions}</td></tr>${logRow}`
     }),
   )
   return cells.join('')
@@ -88,16 +97,38 @@ function page(rows: string): string {
 <title>grove</title>
 <style>body{font:14px system-ui;margin:2rem}
 table{border-collapse:collapse;width:100%}td,th{padding:.5rem;border-bottom:1px solid #ddd;text-align:left}
-.dot{display:inline-block;width:.6rem;height:.6rem;border-radius:50%}
-.on{background:#16a34a}.off{background:#9ca3af}
+.dot{display:inline-block;width:.6rem;height:.6rem;border-radius:50%;vertical-align:middle}
+.dot.live{background:#16a34a}.dot.failed{background:#dc2626}.dot.stopped{background:#9ca3af}.dot.pending{background:#d97706}
+.statuslabel{font-size:.85em;color:#475569}.hint{font-size:.8em;color:#92400e}
 button{font:inherit;padding:.2rem .6rem;margin-right:.3rem}
+button:disabled{opacity:.5;cursor:default}
 .tabs{margin:.25rem 0}.tab{cursor:pointer}.tab.active{font-weight:600;background:#0b0f17;color:#fff}
 .logpane{margin:0;height:24rem;overflow:auto;background:#0b0f17;color:#cbd5e1;padding:.5rem;border-radius:.3rem;font:12px ui-monospace,monospace;white-space:pre-wrap;word-break:break-word}</style>
 <h1>grove — worktrees</h1>
-<table><thead><tr><th></th><th>worktree</th><th>url</th><th>actions</th></tr></thead>
+<table><thead><tr><th>status</th><th>worktree</th><th>url</th><th>actions</th></tr></thead>
 <tbody id=rows>${rows}</tbody></table>
 <script>
-const open=new Set(), active=new Map()
+const open=new Set(), active=new Map(), pending=new Map()
+function paintPending(name){
+  const tr=document.querySelector('tr[data-name="'+CSS.escape(name)+'"]'); if(!tr) return
+  const dot=tr.querySelector('.dot'); if(dot) dot.className='dot pending'
+  const lbl=tr.querySelector('.statuslabel'); if(lbl) lbl.textContent='starting…'
+  tr.querySelectorAll('button').forEach(b=>{b.disabled=true})
+}
+async function act(action,name){
+  // fetch, not a form POST, so the page never reloads (DASH-5). start/restart get
+  // an optimistic 'starting…' until a poll sees live/failed or the 65s ceiling
+  // lapses — grove-up waits 30s per port, BE then FE sequentially, so a two-port
+  // bind failure writes its failed record at ~60s; the ceiling sits just past that
+  // so the row stays 'starting…' straight through to 'failed' instead of blipping
+  // 'stopped'. A prestart that dies before writing an instance file falls back to
+  // 'stopped' + the launch log. stop is fast (sync teardown), so it skips pending.
+  if(action!=='down'){pending.set(name,Date.now()+65000); paintPending(name)}
+  let res
+  try{res=await fetch('/'+action+'/'+encodeURIComponent(name),{method:'POST'})}catch{}
+  if(res&&!res.ok) pending.delete(name) // 403/404 resolve without throwing — drop the phantom
+  refresh()
+}
 function showTab(name,key){
   active.set(name,key)
   for(const k of ['up','be','fe']){
@@ -123,6 +154,14 @@ async function refresh(){
   try{
     const r=await fetch('/rows'); if(!r.ok) return
     document.getElementById('rows').innerHTML=await r.text()
+    // Re-apply 'starting…' to still-pending rows the swap reset; clear it once the
+    // server reports a settled state (live/failed), the row is gone, or it expired.
+    for(const [name,deadline] of pending){
+      const tr=document.querySelector('tr[data-name="'+CSS.escape(name)+'"]')
+      const st=tr&&tr.dataset.status
+      if(!tr||st==='live'||st==='failed'||Date.now()>deadline) pending.delete(name)
+      else paintPending(name)
+    }
     for(const name of open) refreshLogs(name)
   }catch{}
 }
@@ -190,19 +229,21 @@ function serve(): void {
         if (!name || !isAllowedName(name, listWorktreeDirs())) {
           return new Response('unknown worktree', { status: 404 })
         }
+        // 204, not a redirect: act() issues these via fetch and drives the table
+        // refresh itself, so the page never navigates (DASH-5).
         if (action === 'up') {
           up(name)
-          return Response.redirect('/', 303)
+          return new Response(null, { status: 204 })
         }
         if (action === 'down') {
           down(name)
-          return Response.redirect('/', 303)
+          return new Response(null, { status: 204 })
         }
         if (action === 'restart') {
           down(name)
           await Bun.sleep(300) // let the OS release the ports before grove-up's in-use precheck
           up(name)
-          return Response.redirect('/', 303)
+          return new Response(null, { status: 204 })
         }
       }
       if (action === 'rows') {
