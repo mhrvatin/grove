@@ -91,14 +91,20 @@ async function renderRows(): Promise<string> {
 
 function page(rows: string): string {
   // Poll the /rows fragment instead of a full-page refresh, so the table updates
-  // in place without flicker or losing scroll position. Open log rows are tracked
-  // in `open` and re-revealed/refetched after each swap, so they stay open.
+  // in place without flicker or losing scroll position. To kill the every-2s
+  // flash, refresh() morphs: it caches the last /rows string and only touches the
+  // DOM when it changes, replacing just the data rows whose markup actually
+  // differs (DASH-5). Open log rows are tracked in `open`, never recreated by the
+  // morph, and refilled only when their text changes — so they stay open and keep
+  // scroll position.
   return `<!doctype html><meta charset=utf8>
 <title>grove</title>
 <style>body{font:14px system-ui;margin:2rem}
 table{border-collapse:collapse;width:100%}td,th{padding:.5rem;border-bottom:1px solid #ddd;text-align:left}
 .dot{display:inline-block;width:.6rem;height:.6rem;border-radius:50%;vertical-align:middle}
-.dot.live{background:#16a34a}.dot.failed{background:#dc2626}.dot.stopped{background:#9ca3af}.dot.pending{background:#d97706}
+.dot.live{background:#16a34a}.dot.failed{background:#dc2626}.dot.stopped{background:#9ca3af}
+.dot.pending{background:transparent;border:2px solid #d97706;border-top-color:transparent;box-sizing:border-box;animation:spin .7s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
 .statuslabel{font-size:.85em;color:#475569}.hint{font-size:.8em;color:#92400e}
 button{font:inherit;padding:.2rem .6rem;margin-right:.3rem}
 button:disabled{opacity:.5;cursor:default}
@@ -108,7 +114,8 @@ button:disabled{opacity:.5;cursor:default}
 <table><thead><tr><th>status</th><th>worktree</th><th>url</th><th>actions</th></tr></thead>
 <tbody id=rows>${rows}</tbody></table>
 <script>
-const open=new Set(), active=new Map(), pending=new Map()
+const open=new Set(), active=new Map(), pending=new Map(), logCache=new Map()
+let lastRows=''
 function paintPending(name){
   const tr=document.querySelector('tr[data-name="'+CSS.escape(name)+'"]'); if(!tr) return
   const dot=tr.querySelector('.dot'); if(dot) dot.className='dot pending'
@@ -126,7 +133,7 @@ async function act(action,name){
   if(action!=='down'){pending.set(name,Date.now()+65000); paintPending(name)}
   let res
   try{res=await fetch('/'+action+'/'+encodeURIComponent(name),{method:'POST'})}catch{}
-  if(res&&!res.ok) pending.delete(name) // 403/404 resolve without throwing — drop the phantom
+  if(res&&!res.ok){pending.delete(name); lastRows=''} // 403/404 resolve without throwing — drop the phantom + force a corrective re-morph
   refresh()
 }
 function showTab(name,key){
@@ -142,7 +149,13 @@ async function refreshLogs(name){
   try{
     const r=await fetch('/logs/'+encodeURIComponent(name)); if(!r.ok) return
     const j=await r.json()
-    for(const k of ['up','be','fe']){const el=document.getElementById(k+'-'+name); if(el) el.textContent=j[k]}
+    // Only write a pane when its text changed — an unchanged log left alone keeps
+    // its scroll position and doesn't reflash on every 2s poll (DASH-5).
+    for(const k of ['up','be','fe']){
+      const el=document.getElementById(k+'-'+name); if(!el) continue
+      const ck=name+'/'+k
+      if(logCache.get(ck)!==j[k]){logCache.set(ck,j[k]); el.textContent=j[k]}
+    }
   }catch{}
   showTab(name,active.get(name)||'be')
 }
@@ -150,16 +163,41 @@ function toggleLogs(name){
   if(open.has(name)){open.delete(name); const row=document.getElementById('logrow-'+name); if(row) row.hidden=true}
   else{open.add(name); refreshLogs(name)}
 }
+function morph(html){
+  const tbody=document.getElementById('rows')
+  const tmp=document.createElement('tbody'); tmp.innerHTML=html
+  const incoming=[...tmp.querySelectorAll('tr[data-name]')]
+  const cur=[...tbody.querySelectorAll('tr[data-name]')]
+  // A worktree appeared/disappeared → row set changed; rebuild wholesale (rare).
+  if(incoming.map(t=>t.dataset.name).join(',')!==cur.map(t=>t.dataset.name).join(',')){
+    // Wholesale rebuild blanks every log pane; drop the cache so refreshLogs refills them.
+    logCache.clear(); tbody.innerHTML=html; return
+  }
+  // Otherwise touch only the data rows that differ — and never recreate the log
+  // rows (left in the DOM, refilled by refreshLogs), so open logs survive.
+  for(const nt of incoming){
+    const name=nt.dataset.name
+    const ct=tbody.querySelector('tr[data-name="'+CSS.escape(name)+'"]'); if(!ct) continue
+    // A pending row is client-owned: let the server overwrite it only once it
+    // settles (live/failed), else keep the spinner instead of flashing back.
+    if(pending.has(name)){
+      if(nt.dataset.status==='live'||nt.dataset.status==='failed') ct.replaceWith(nt)
+      continue
+    }
+    if(ct.outerHTML!==nt.outerHTML) ct.replaceWith(nt)
+  }
+}
 async function refresh(){
   try{
     const r=await fetch('/rows'); if(!r.ok) return
-    document.getElementById('rows').innerHTML=await r.text()
-    // Re-apply 'starting…' to still-pending rows the swap reset; clear it once the
-    // server reports a settled state (live/failed), the row is gone, or it expired.
+    const html=await r.text()
+    if(html!==lastRows){lastRows=html; morph(html)} // skip the DOM entirely when nothing changed
+    // Re-apply 'starting…' to still-pending rows; clear it once the server reports
+    // a settled state (live/failed), the row is gone, or the ceiling lapses.
     for(const [name,deadline] of pending){
       const tr=document.querySelector('tr[data-name="'+CSS.escape(name)+'"]')
       const st=tr&&tr.dataset.status
-      if(!tr||st==='live'||st==='failed'||Date.now()>deadline) pending.delete(name)
+      if(!tr||st==='live'||st==='failed'||Date.now()>deadline){pending.delete(name); lastRows=''} // force a re-morph so the ceiling-lapse row reverts to server truth (re-enables buttons)
       else paintPending(name)
     }
     for(const name of open) refreshLogs(name)
