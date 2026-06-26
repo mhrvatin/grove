@@ -27,6 +27,12 @@ assignment, stateless discovery, the dashboard, and the log viewer.
 
 **Non-goals (deliberately deferred — do not build without a concrete need):**
 
+- **Accessibility (a11y).** Grove is a single-developer localhost tool used by the
+  one person running it on their own machine — there is no screen-reader, keyboard-
+  only, or WCAG-contrast obligation. ARIA roles, accessible names for the status
+  dots, `role=tablist` on the log tabs, and AA contrast audits are explicitly **not
+  goals** and SHALL NOT be treated as bugs. (This is a deliberate scope decision,
+  not an oversight — see the design doc's "What we deliberately did not do".)
 - **Arbitrary N services.** Grove's domain is exactly two slots: a backend and a
   frontend per worktree. Not a general service list.
 - **Auto-start on worktree creation** (a WorktreeCreate hook).
@@ -94,14 +100,19 @@ assignment, stateless discovery, the dashboard, and the log viewer.
 |----|--------|-------------|
 | DASH-1 | Done | `just grove` SHALL start a `Bun.serve` HTTP dashboard bound to `127.0.0.1` only, detached in the background. It SHALL be idempotent — if already listening on its port, just print the URL. |
 | DASH-2 | Done | `just grove-stop` SHALL kill only the dashboard's own listener; it SHALL NOT touch running worktree instances. |
-| DASH-3 | Done | The dashboard SHALL render one row per worktree showing: name, the URL as a link, a status dot (states refined by DASH-9), start/restart/stop buttons, and a logs toggle. |
+| DASH-3 | Done | The dashboard SHALL render one row per worktree showing: name, the URL as a link, a status dot (the three states — *running*, *failed*, *idle* — are defined by DASH-12), start/restart/stop buttons, and a logs toggle. |
 | DASH-4 | Done | Discovery SHALL be stateless: worktrees from `git worktree list`, ports from `portsFor`, liveness from a port probe. Nothing to reconcile. |
-| DASH-5 | Done | The dashboard SHALL poll a `GET /rows` fragment (~2s) and update in place, without a full-page reload, flicker, or scroll-position loss. Open log rows SHALL stay open across polls. **State-changing actions (start/restart/stop) SHALL likewise be issued via same-origin `fetch` and drive the same in-place refresh — never a full-page form POST/redirect — so open log rows and scroll position survive an action.** |
-| DASH-6 | Done | The dashboard SHALL use the full page width. |
+| DASH-5 | Done | The dashboard SHALL poll a `GET /rows` fragment (~2s) and update in place, without a full-page reload, flicker, or scroll-position loss. Open log rows SHALL stay open across polls. |
+| DASH-5a | Superseded by DASH-11 | ~~State-changing actions (start/restart/stop) SHALL be issued via same-origin `fetch` and drive the same in-place refresh — never a full-page form POST/redirect — so open log rows and scroll position survive an action.~~ |
+| DASH-6 | Done | The dashboard SHALL use the full page width. On narrow viewports it SHALL stack each worktree row into a block (so long branch names never overflow) rather than scroll a table horizontally. |
 | DASH-7 | Deferred | A richer frontend (build step, multiple files, or a component framework) is deferred. Today the dashboard is a single server-rendered HTML string with a small inline poll script; that is sufficient until the UI outgrows it. |
-| DASH-8 | Done | State-changing POSTs (`/up`, `/down`, `/restart`) SHALL return `204 No Content` (not a redirect), since the client issues them via `fetch` (DASH-5) and refreshes the table itself. |
-| DASH-9 | Done | A row SHALL show one of three status states, by **both** a coloured dot and a text label (never colour alone): `live` (instance file present **and** a live port probe), `failed` (instance file present but **no** live port — grove-up wrote the record on a no-bind, UP-6), and `stopped` (no instance file). A `failed` row SHALL offer a start action and point the user at the launch log. |
-| DASH-10 | Done | After a start or restart is issued, the originating row SHALL show a transient `starting…` pending state (a distinct dot + label, actions disabled) until a subsequent poll observes it `live` or `failed`, or a ceiling (~65s, just past grove-up's worst-case bind wait — 30s per port, BE then FE sequentially, so ~60s for a two-port failure) lapses. This bridges the bind window; statelessness (DASH-4) means it is tracked client-side, not on the server. |
+| DASH-8 | Superseded by DASH-11 | ~~State-changing POSTs (`/up`, `/down`, `/restart`) SHALL return `204 No Content` (not a redirect), since the client issues them via `fetch` (DASH-5) and refreshes the table itself.~~ |
+| DASH-9 | Superseded by DASH-12 | ~~A row SHALL show one of three status states, by **both** a coloured dot and a text label (never colour alone): `live` (instance file present **and** a live port probe), `failed` (instance file present but **no** live port — grove-up wrote the record on a no-bind, UP-6), and `stopped` (no instance file). A `failed` row SHALL offer a start action and point the user at the launch log.~~ |
+| DASH-10 | Superseded by DASH-11 | ~~After a start or restart is issued, the originating row SHALL show a transient `starting…` pending state (a distinct dot + label, actions disabled) until a subsequent poll observes it `live` or `failed`, or a ceiling (~65s, just past grove-up's worst-case bind wait — 30s per port, BE then FE sequentially, so ~60s for a two-port failure) lapses. This bridges the bind window; statelessness (DASH-4) means it is tracked client-side, not on the server.~~ |
+| DASH-11 | Done | State-changing actions (start/restart/stop) SHALL update the table in place — no full-page reload, preserving scroll position and open log drawers (DASH-5, extended from polls to writes). After a start/restart the worktree's row SHALL show a *starting…* pending state until a subsequent `/rows` poll observes it *running* or *failed* (DASH-12). Because a fast-fail launch (e.g. the UP-3 port-in-use precheck) writes no instance file and so never reaches *failed*, a pending row that has neither gone live nor failed within a bind-timeout backstop (> grove-up's worst-case sequential bind wait) SHALL flip to a *start failed* state pointing at the launch log. (No-JS clients degrade to the prior full-reload POST.) |
+| DASH-12 | Done | The dashboard SHALL distinguish three row states from stateless discovery: *running* (instance file present **and** a live port probe), *failed* (instance file present **but** the port probe is dead — a bind-timeout per UP-6, recorded with pid `0`, or a crashed slot), and *idle* (no instance file). A *failed* row SHALL be visually distinct from *idle* and SHALL offer restart/stop plus the logs toggle (not a bare "start"), so a failed or crashed start is never indistinguishable from a never-started worktree. |
+| DASH-13 | Done | The dashboard header SHALL show a summary: the number of running worktrees and the total worktree count. The running count SHALL reflect the same live status as the row dots (instance file present **and** a live port probe) and SHALL stay current across the `GET /rows` poll. |
+| DASH-14 | Done | When there are no worktrees, the dashboard SHALL render a teaching empty state (what grove is and how to start an instance) in place of the table, surviving the poll like a normal row. |
 
 ## 6. Log viewer (`LOG`)
 

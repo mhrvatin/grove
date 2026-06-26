@@ -1,6 +1,6 @@
 // Pure model for the grove dashboard: cross-reference the git worktree list with
 // the .grove/instances/*.json files to produce one row per worktree. Stateless —
-// no instance file means "stopped", and ports for stopped worktrees are derived
+// no instance file means "idle", and ports for idle worktrees are derived
 // the same way grove-up derives them (via portsFor + config), so the URL is shown
 // even before launch.
 import { join } from 'node:path'
@@ -19,18 +19,6 @@ export type Row = {
 }
 
 export type LogSection = { key: 'up' | 'be' | 'fe'; header: string; path: string }
-
-export type RowStatus = 'live' | 'failed' | 'stopped'
-
-// Three display states from stateless discovery: a live port is `live`; an
-// instance file with no live port is `failed` (grove-up always writes the record
-// even on a no-bind, pid 0 — UP-6 — so file-present-but-dead means the start
-// gave up); no instance file is `stopped`.
-export function rowStatus(hasInstance: boolean, portLive: boolean): RowStatus {
-  if (portLive) return 'live'
-  if (hasInstance) return 'failed'
-  return 'stopped'
-}
 
 function basename(p: string): string {
   return p.split('/').filter(Boolean).pop() ?? p
@@ -102,6 +90,28 @@ function formatPinoLine(line: string): string {
 
 export function formatPinoLog(text: string): string {
   return text.split('\n').map(formatPinoLine).join('\n')
+}
+
+// Header summary counts. `total` is exact (one row per worktree); `running` is
+// the instance-file count, so it includes *failed* rows (a file with a dead probe
+// — see rowStatus). It is only the server-render seed: updateCounts() recounts
+// `.live` rows client-side on load and after each poll for the spec-accurate
+// figure (DASH-13). No-JS clients see this looser seed.
+export function groveSummary(rows: Row[]): { running: number; total: number } {
+  return { running: rows.filter((r) => r.running).length, total: rows.length }
+}
+
+export type RowStatus = 'live' | 'failed' | 'idle'
+
+// Three-state row status from stateless discovery (DASH-12). `running` is whether
+// an instance file exists (buildRows); `live` is the port probe. A file with a
+// dead probe is a *failed* start — UP-6 writes the instance with pid 0 when a port
+// never binds, and a crashed slot leaves the file behind too. Collapsing that into
+// "idle" (a bare "start" button) is the bug: a failed start then looks identical to
+// a never-started worktree.
+export function rowStatus(running: boolean, live: boolean): RowStatus {
+  if (!running) return 'idle'
+  return live ? 'live' : 'failed'
 }
 
 export function buildRows(

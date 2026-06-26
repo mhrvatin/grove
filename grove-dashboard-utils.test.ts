@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test'
 import {
   buildRows,
   formatPinoLog,
+  groveSummary,
   instanceLogSections,
   isAllowedName,
   isSameOrigin,
@@ -51,17 +52,14 @@ describe('buildRows', () => {
   })
 })
 
-describe('rowStatus', () => {
-  test('a live port is running', () => {
-    expect(rowStatus(true, true)).toBe('live')
+describe('groveSummary', () => {
+  test('counts running instances and total worktrees', () => {
+    const rows = buildRows(['/repo/a', '/repo/b', '/repo/c'], [inst('a'), inst('c')], config)
+    expect(groveSummary(rows)).toEqual({ running: 2, total: 3 })
   })
 
-  test('an instance file with a dead port is a failed start (grove-up wrote the record then the port never bound)', () => {
-    expect(rowStatus(true, false)).toBe('failed')
-  })
-
-  test('no instance file is stopped', () => {
-    expect(rowStatus(false, false)).toBe('stopped')
+  test('zero of both for no worktrees', () => {
+    expect(groveSummary([])).toEqual({ running: 0, total: 0 })
   })
 })
 
@@ -118,6 +116,21 @@ describe('formatPinoLog', () => {
 
   test('leaves JSON without time/level alone', () => {
     expect(formatPinoLog('{"foo":1}')).toBe('{"foo":1}')
+  })
+})
+
+describe('rowStatus', () => {
+  test('running instance with a live probe is live', () => {
+    expect(rowStatus(true, true)).toBe('live')
+  })
+
+  test('instance file present but a dead probe is failed (UP-6 pid-0 bind / crash)', () => {
+    expect(rowStatus(true, false)).toBe('failed')
+  })
+
+  test('no instance file is idle, regardless of probe', () => {
+    expect(rowStatus(false, false)).toBe('idle')
+    expect(rowStatus(false, true)).toBe('idle')
   })
 })
 
