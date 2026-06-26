@@ -3,11 +3,20 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
+  "scripts": {
+    "build": "tsc --noEmit"
+  },
   "description": "Project-agnostic worktree dev launcher + dashboard. Self-contained: only node:*/bun built-ins, no @facit or third-party deps — extract to its own repo by lifting this directory out.",
   "bin": {
     "grove-up": "./grove-up.ts",
     "grove-down": "./grove-down.ts",
     "grove-url": "./grove-url.ts",
     "grove": "./grove-dashboard.ts"
+  },
+  "devDependencies": {
+    "@tsconfig/bun": "1.0.10",
+    "@tsconfig/strictest": "2.0.8",
+    "@types/bun": "1.3.10",
+    "typescript": "5.9.3"
   }
 }

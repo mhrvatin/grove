@@ -16,6 +16,8 @@ export type Row = {
   bePort: number
   fePort: number
   running: boolean
+  // An orphan tombstone: an instance file whose worktree was removed (DASH-15).
+  orphaned: boolean
 }
 
 export type LogSection = { key: 'up' | 'be' | 'fe'; header: string; path: string }
@@ -31,6 +33,41 @@ function basename(p: string): string {
 // membership closes the hole without a separate character allowlist.
 export function isAllowedName(name: string, worktreeDirs: string[]): boolean {
   return name.length > 0 && worktreeDirs.some((d) => basename(d) === name)
+}
+
+// Like isAllowedName, but also accepts the name of an existing instance record
+// whose worktree is gone — so an orphan tombstone can be cleared (SEC-3a). Both
+// sets are populated by grove from real worktree basenames, never HTTP input.
+export function isActionableName(
+  name: string,
+  worktreeDirs: string[],
+  instances: Instance[],
+): boolean {
+  return isAllowedName(name, worktreeDirs) || instances.some((i) => i.name === name)
+}
+
+// Instances whose worktree no longer exists (the worktree was removed) — the
+// tombstones the dashboard shows and reaps (DASH-15/16).
+export function orphanInstances(worktreeDirs: string[], instances: Instance[]): Instance[] {
+  const names = new Set(worktreeDirs.map(basename))
+  return instances.filter((i) => !names.has(i.name))
+}
+
+// Orphans the reaper should kill this poll: those not yet reaped this episode
+// (DASH-16). Pairs with prunedReaped — once an orphan is reaped its name stays in
+// the set (so a port a later process rebinds is never re-killed) until it stops
+// being an orphan.
+export function reapTargets(reaped: Set<string>, orphans: Instance[]): Instance[] {
+  return orphans.filter((o) => !reaped.has(o.name))
+}
+
+// Evict from the reaped set any name that is no longer an orphan — cleared (the
+// instance file removed) or its worktree recreated. This bounds reaping to "once
+// per orphan episode": a steady tombstone is reaped at most once, but a worktree
+// removed → recreated → removed reaps fresh on each removal (DASH-16).
+export function prunedReaped(reaped: Set<string>, orphans: Instance[]): Set<string> {
+  const orphanNames = new Set(orphans.map((o) => o.name))
+  return new Set([...reaped].filter((name) => orphanNames.has(name)))
 }
 
 // CSRF guard for state-changing POSTs: browsers always send Origin on cross-site
@@ -98,10 +135,12 @@ export function formatPinoLog(text: string): string {
 // `.live` rows client-side on load and after each poll for the spec-accurate
 // figure (DASH-13). No-JS clients see this looser seed.
 export function groveSummary(rows: Row[]): { running: number; total: number } {
-  return { running: rows.filter((r) => r.running).length, total: rows.length }
+  // Orphan tombstones are not worktrees — exclude them from both counts (DASH-15).
+  const worktrees = rows.filter((r) => !r.orphaned)
+  return { running: worktrees.filter((r) => r.running).length, total: worktrees.length }
 }
 
-export type RowStatus = 'live' | 'failed' | 'idle'
+export type RowStatus = 'live' | 'failed' | 'idle' | 'orphaned'
 
 // Three-state row status from stateless discovery (DASH-12). `running` is whether
 // an instance file exists (buildRows); `live` is the port probe. A file with a
@@ -109,7 +148,8 @@ export type RowStatus = 'live' | 'failed' | 'idle'
 // never binds, and a crashed slot leaves the file behind too. Collapsing that into
 // "idle" (a bare "start" button) is the bug: a failed start then looks identical to
 // a never-started worktree.
-export function rowStatus(running: boolean, live: boolean): RowStatus {
+export function rowStatus(running: boolean, live: boolean, orphaned = false): RowStatus {
+  if (orphaned) return 'orphaned'
   if (!running) return 'idle'
   return live ? 'live' : 'failed'
 }
@@ -120,7 +160,7 @@ export function buildRows(
   config: GroveConfig,
 ): Row[] {
   const byName = new Map(instances.map((i) => [i.name, i]))
-  return worktreeDirs.map((dir) => {
+  const worktreeRows = worktreeDirs.map((dir) => {
     const name = basename(dir)
     const inst = byName.get(name)
     if (inst) {
@@ -131,6 +171,7 @@ export function buildRows(
         bePort: inst.bePort,
         fePort: inst.fePort,
         running: true,
+        orphaned: false,
       }
     }
     const { be, fe } = portsFor(name, config)
@@ -141,6 +182,18 @@ export function buildRows(
       bePort: be,
       fePort: fe,
       running: false,
+      orphaned: false,
     }
   })
+  // Tombstone rows for instances whose worktree is gone (DASH-15).
+  const orphanRows = orphanInstances(worktreeDirs, instances).map((i) => ({
+    name: i.name,
+    dir: i.dir,
+    url: i.url,
+    bePort: i.bePort,
+    fePort: i.fePort,
+    running: false,
+    orphaned: true,
+  }))
+  return [...worktreeRows, ...orphanRows]
 }

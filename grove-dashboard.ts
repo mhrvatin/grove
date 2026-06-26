@@ -14,8 +14,12 @@ import {
   formatPinoLog,
   groveSummary,
   instanceLogSections,
+  isActionableName,
   isAllowedName,
   isSameOrigin,
+  orphanInstances,
+  prunedReaped,
+  reapTargets,
   rowStatus,
 } from './grove-dashboard-utils.ts'
 import {
@@ -29,8 +33,12 @@ import {
   spawnDetached,
 } from './grove-instances.ts'
 
-const PORT = Number(process.env.DASHBOARD_PORT) || 4000
+const PORT = Number(process.env['DASHBOARD_PORT']) || 4000
 const repoRoot = mainRepoRoot()
+// Orphans already reaped (DASH-16) — kept so a reaped orphan's port, if a later
+// process rebinds it, is never re-SIGTERM'd. Pruned each poll to names that are
+// still orphans (prunedReaped), so it bounds reaping to once per orphan episode.
+let reaped = new Set<string>()
 
 async function alive(port: number): Promise<boolean> {
   try {
@@ -51,7 +59,24 @@ async function renderRows(): Promise<string> {
   // independent (just a port-kill / detached respawn), so stopping the dashboard
   // must never fail because grove.config.ts isn't on main yet. loadConfig caches.
   const config = await loadConfig()
-  const rows = buildRows(listWorktreeDirs(), readInstances(), config)
+  const worktreeDirs = listWorktreeDirs()
+  const instances = readInstances()
+  // Auto-reap orphans (DASH-16): an instance whose worktree was removed. On first
+  // sighting kill its listeners so the freed ports don't leak — killByPortAndPids
+  // is lsof-gated per port (a dead port is a no-op), so this is unconditional and
+  // frees a still-live BE even when the FE has already died. The instance file is
+  // kept as a visible tombstone (DASH-15), so we record the name (reaped) and
+  // never touch its ports again — otherwise a later process that rebinds a freed
+  // port (e.g. a fresh vite on 5173) would be killed every poll. prunedReaped then
+  // drops names that are no longer orphans (cleared, or worktree recreated), so a
+  // worktree removed → recreated → removed reaps fresh on each removal episode.
+  const orphans = orphanInstances(worktreeDirs, instances)
+  for (const o of reapTargets(reaped, orphans)) {
+    killByPortAndPids([o.bePort, o.fePort], [o.bePid, o.fePid])
+    reaped.add(o.name)
+  }
+  reaped = prunedReaped(reaped, orphans)
+  const rows = buildRows(worktreeDirs, instances, config)
   // Empty-state teaches the tool. Rendered as a tbody row so it survives the
   // /rows poll the same way real rows do (no separate code path to keep in sync).
   if (rows.length === 0) {
@@ -65,7 +90,7 @@ async function renderRows(): Promise<string> {
       // Three-state status (DASH-12): a worktree with an instance file but a dead
       // port probe is *failed* (UP-6 pid-0 bind-timeout, or a crashed slot), not
       // idle — so a failed start never looks like a never-started one.
-      const status = rowStatus(r.running, r.running && (await alive(r.fePort)))
+      const status = rowStatus(r.running, r.running && (await alive(r.fePort)), r.orphaned)
       const dot = `<span class=dot></span>`
       // Strip the scheme for display — the running worktree's address is the
       // signal; `localhost:5173` reads cleaner than the full URL. href stays whole.
@@ -79,19 +104,25 @@ async function renderRows(): Promise<string> {
       // Show logs toggles an inline log row attached to this worktree (same tab),
       // tracked client-side so it survives the 2s poll. Never a new page.
       const logsBtn = `<button type=button class="btn ghost" aria-expanded=false onclick="toggleLogs('${r.name}')">logs</button>`
-      // Failed/live both expose restart (retry) + stop (clears a pid-0 file); only
-      // a truly idle worktree gets the bare "start".
+      // Orphan tombstone (DASH-15): its worktree is gone, so neither start nor
+      // restart applies — only clear, which runs the stop/down path to remove the
+      // stale instance record. Failed/live both expose restart (retry) + stop
+      // (clears a pid-0 file); only a truly idle worktree gets the bare "start".
       const actions =
-        status === 'idle'
-          ? `${form('up', 'primary', 'play', 'start')}${logsBtn}`
-          : `${form('restart', '', 'restart', 'restart')}${form('down', 'danger', 'stop', 'stop')}${logsBtn}`
-      // The phase line carries the failed/starting label. Server renders the failed
-      // text; the client fills "starting…" (and the fast-fail backstop) into the
-      // empty span for idle rows it just acted on.
+        status === 'orphaned'
+          ? form('down', 'danger', 'stop', 'clear')
+          : status === 'idle'
+            ? `${form('up', 'primary', 'play', 'start')}${logsBtn}`
+            : `${form('restart', '', 'restart', 'restart')}${form('down', 'danger', 'stop', 'stop')}${logsBtn}`
+      // The phase line carries the failed/starting/removed label. Server renders the
+      // failed/removed text; the client fills "starting…" (and the fast-fail
+      // backstop) into the empty span for idle rows it just acted on.
       const phase =
         status === 'failed'
           ? `<span class="phase failed">failed · open launch log</span>`
-          : `<span class=phase hidden></span>`
+          : status === 'orphaned'
+            ? `<span class="phase orphaned">worktree removed · server stopped</span>`
+            : `<span class=phase hidden></span>`
       // The log row is rendered hidden alongside every worktree; toggleLogs/
       // refreshLogs reveal and fill it. One full-width pane at a time — tabs
       // switch between the launch, BE and FE logs (BE shown first).
@@ -170,6 +201,8 @@ tbody tr.wt:last-child td,tbody tr.logrow:last-child td{border-bottom:none}
 tr.wt.live .dot{background:var(--leaf);box-shadow:0 0 0 4px var(--leaf-glow);animation:pulse 2.6s var(--ease) infinite}
 tr.wt.idle .dot{background:transparent;border-color:var(--border-strong)}
 tr.wt.failed .dot{background:transparent;border-color:var(--danger);box-shadow:0 0 0 3px var(--danger-soft)}
+tr.wt.orphaned .dot{background:var(--border-strong);border-color:var(--border-strong)}
+tr.wt.orphaned .name{color:var(--muted);font-weight:500;text-decoration:line-through}
 tr.wt.starting .dot{background:var(--accent);box-shadow:0 0 0 4px oklch(0.55 0.125 66 / .3);animation:pulse 1.4s var(--ease) infinite}
 @keyframes pulse{0%,100%{box-shadow:0 0 0 3px var(--leaf-glow)}50%{box-shadow:0 0 0 6px transparent}}
 .name{font-family:var(--mono);font-size:.92rem;font-weight:600;color:var(--ink);overflow-wrap:anywhere}
@@ -177,6 +210,7 @@ tr.wt.idle .name{color:var(--muted);font-weight:500}
 .phase{font-family:var(--mono);font-size:.72rem;margin-top:.25rem}
 .phase.failed{color:var(--danger)}
 .phase.starting{color:var(--accent)}
+.phase.orphaned{color:var(--muted)}
 .url{display:inline-flex;align-items:center;gap:.35rem;font-family:var(--mono);font-size:.82rem;color:var(--accent);
   text-decoration:none;border-bottom:1px solid transparent;transition:border-color .12s var(--ease),color .12s}
 .url:hover{color:var(--accent-strong);border-bottom-color:currentColor}
@@ -277,7 +311,7 @@ function setPhase(row,cls,text){const p=row.querySelector('.phase'); if(p){p.hid
 function updateCounts(){
   const er=document.getElementById('stat-running'), et=document.getElementById('stat-total')
   if(er) er.textContent=document.querySelectorAll('#rows tr.wt.live').length
-  if(et) et.textContent=document.querySelectorAll('#rows tr.wt').length
+  if(et) et.textContent=document.querySelectorAll('#rows tr.wt:not(.orphaned)').length // orphan tombstones aren't worktrees (DASH-15)
 }
 function applyPending(){
   for(const name of failed){ // persist a fast-fail notice on the (server-idle) row
@@ -448,7 +482,13 @@ function serve(): void {
         if (!isSameOrigin(req.headers.get('origin'), PORT)) {
           return new Response('forbidden', { status: 403 })
         }
-        if (!name || !isAllowedName(name, listWorktreeDirs())) {
+        // `down` may target an orphan tombstone (instance file, no worktree) to
+        // clear it (SEC-3a); up/restart need a real worktree to launch into.
+        const known =
+          action === 'down'
+            ? isActionableName(name, listWorktreeDirs(), readInstances())
+            : isAllowedName(name, listWorktreeDirs())
+        if (!name || !known) {
           return new Response('unknown worktree', { status: 404 })
         }
         if (action === 'up') {
@@ -473,7 +513,9 @@ function serve(): void {
       }
       if (action === 'logs' && name) {
         // Guard name first: it now flows into a filesystem path (path-traversal).
-        if (!isAllowedName(name, listWorktreeDirs())) {
+        // Accept orphan instance names too (SEC-3a) so a log drawer left open when
+        // a live row transitions to an orphan tombstone keeps resolving its logs.
+        if (!isActionableName(name, listWorktreeDirs(), readInstances())) {
           return new Response('unknown worktree', { status: 404 })
         }
         // Return the three logs as separate keyed fields, never concatenated, so
@@ -511,8 +553,9 @@ function start(): void {
   const log = join(groveRoot(), 'logs', 'dashboard.log')
   mkdirSync(join(groveRoot(), 'logs'), { recursive: true })
   // Re-launch this same script in `serve` mode, detached, so closing the
-  // terminal (or Ctrl+C) leaves it running. argv[1] = this file's absolute path.
-  spawnDetached(['bun', 'run', process.argv[1], 'serve'], { cwd: repoRoot, env: {}, logFile: log })
+  // terminal (or Ctrl+C) leaves it running. import.meta.path is this file's
+  // absolute path (= argv[1] when run as the entrypoint), typed as string.
+  spawnDetached(['bun', 'run', import.meta.path, 'serve'], { cwd: repoRoot, env: {}, logFile: log })
   console.log(`▶ dashboard → http://localhost:${PORT} (logs: ${log}, stop: just grove-stop)`)
 }
 

@@ -4,8 +4,12 @@ import {
   formatPinoLog,
   groveSummary,
   instanceLogSections,
+  isActionableName,
   isAllowedName,
   isSameOrigin,
+  orphanInstances,
+  prunedReaped,
+  reapTargets,
   rowStatus,
 } from './grove-dashboard-utils.ts'
 import type { GroveConfig } from './grove-instances-utils.ts'
@@ -50,6 +54,53 @@ describe('buildRows', () => {
   test('one row per worktree', () => {
     expect(buildRows(['/repo/a', '/repo/b'], [inst('a')], config)).toHaveLength(2)
   })
+
+  test('appends an orphan row for an instance whose worktree is gone (DASH-15)', () => {
+    const rows = buildRows(['/repo/main'], [inst('gone')], config)
+    expect(rows.find((r) => r.name === 'main')?.orphaned).toBe(false)
+    const orphan = rows.find((r) => r.name === 'gone')
+    expect(orphan).toMatchObject({ orphaned: true, running: false, url: 'http://localhost:8888' })
+  })
+})
+
+describe('orphanInstances', () => {
+  test('returns instances with no matching worktree basename (DASH-15)', () => {
+    const result = orphanInstances(['/repo/main', '/repo/keep'], [inst('keep'), inst('gone')])
+    expect(result.map((i) => i.name)).toEqual(['gone'])
+  })
+
+  test('empty when every instance maps to a worktree', () => {
+    expect(orphanInstances(['/repo/a'], [inst('a')])).toEqual([])
+  })
+})
+
+// covers: DASH-16
+describe('reaper state (reapTargets / prunedReaped)', () => {
+  test('reapTargets returns only orphans not already reaped', () => {
+    const reaped = new Set(['a'])
+    expect(reapTargets(reaped, [inst('a'), inst('b')]).map((o) => o.name)).toEqual(['b'])
+  })
+
+  test('prunedReaped keeps only names that are still orphans', () => {
+    const reaped = new Set(['gone', 'recreated'])
+    // 'recreated' is no longer an orphan (its worktree came back) → evicted.
+    expect([...prunedReaped(reaped, [inst('gone')])]).toEqual(['gone'])
+  })
+
+  test('a remove→recreate→remove worktree reaps fresh on each removal episode', () => {
+    let reaped = new Set<string>()
+    // 1. removed → orphan, not yet reaped → reap target, then mark reaped
+    expect(reapTargets(reaped, [inst('w')]).map((o) => o.name)).toEqual(['w'])
+    reaped.add('w')
+    reaped = prunedReaped(reaped, [inst('w')])
+    // steady tombstone: reaped at most once while it stays an orphan
+    expect(reapTargets(reaped, [inst('w')])).toEqual([])
+    // 2. recreated → no longer an orphan → name evicted
+    reaped = prunedReaped(reaped, [])
+    expect([...reaped]).toEqual([])
+    // 3. removed again → orphan again → reaps fresh
+    expect(reapTargets(reaped, [inst('w')]).map((o) => o.name)).toEqual(['w'])
+  })
 })
 
 describe('groveSummary', () => {
@@ -60,6 +111,11 @@ describe('groveSummary', () => {
 
   test('zero of both for no worktrees', () => {
     expect(groveSummary([])).toEqual({ running: 0, total: 0 })
+  })
+
+  test('excludes orphan tombstones from running and total (DASH-15)', () => {
+    const rows = buildRows(['/repo/a', '/repo/b'], [inst('a'), inst('gone')], config)
+    expect(groveSummary(rows)).toEqual({ running: 1, total: 2 })
   })
 })
 
@@ -131,6 +187,33 @@ describe('rowStatus', () => {
   test('no instance file is idle, regardless of probe', () => {
     expect(rowStatus(false, false)).toBe('idle')
     expect(rowStatus(false, true)).toBe('idle')
+  })
+
+  test('an orphaned row is orphaned regardless of running/live (DASH-15)', () => {
+    expect(rowStatus(false, false, true)).toBe('orphaned')
+    expect(rowStatus(true, true, true)).toBe('orphaned')
+  })
+})
+
+describe('isActionableName', () => {
+  const dirs = ['/repo/main', '/repo/feat+x']
+  const instances = [inst('feat+x'), inst('gone')]
+
+  test('accepts an actual worktree basename', () => {
+    expect(isActionableName('main', dirs, instances)).toBe(true)
+  })
+
+  test('accepts an instance name whose worktree is gone (clears an orphan — SEC-3a)', () => {
+    expect(isActionableName('gone', dirs, instances)).toBe(true)
+  })
+
+  test('rejects a name that is neither a worktree nor an instance', () => {
+    expect(isActionableName('nope', dirs, instances)).toBe(false)
+    expect(isActionableName('', dirs, instances)).toBe(false)
+  })
+
+  test('rejects shell-injection payloads', () => {
+    expect(isActionableName('$(rm -rf ~)', dirs, instances)).toBe(false)
   })
 })
 
