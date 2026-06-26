@@ -1,0 +1,12 @@
+{
+  "name": "grove",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Project-agnostic worktree dev launcher + dashboard. Self-contained: only node:*/bun built-ins, no @facit or third-party deps — extract to its own repo by lifting this directory out.",
+  "bin": {
+    "grove-up": "./grove-up.ts",
+    "grove-down": "./grove-down.ts",
+    "grove": "./grove-dashboard.ts"
+  }
+}
