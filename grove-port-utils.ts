@@ -17,3 +17,11 @@ export function portsFor(name: string, config: GroveConfig): Ports {
   const offset = ((hash % SPAN) + SPAN) % SPAN
   return { be: config.backend.portBase + offset, fe: config.frontend.portBase + offset }
 }
+
+// The grove-url output line + exit code for a frontend port (URL-2). The URL is
+// always the real deterministic location (URL-1); liveness only adds a suffix and
+// flips the exit code, so a caller can branch on up/down without parsing.
+export function urlStatus(fePort: number, live: boolean): { line: string; code: number } {
+  const url = `http://localhost:${fePort}`
+  return live ? { line: url, code: 0 } : { line: `${url} (down)`, code: 1 }
+}

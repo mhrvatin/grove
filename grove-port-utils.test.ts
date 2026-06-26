@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import type { GroveConfig } from './grove-instances-utils.ts'
-import { portsFor } from './grove-port-utils.ts'
+import { portsFor, urlStatus } from './grove-port-utils.ts'
 
 const slot = (portBase: number) => ({ portBase, cmd: [], env: () => ({}) })
 const config: GroveConfig = {
@@ -39,5 +39,19 @@ describe('portsFor', () => {
 
   test('different names usually differ', () => {
     expect(portsFor('main', config)).not.toEqual(portsFor('feat+dev-up-combined', config))
+  })
+})
+
+// covers: URL-1, URL-2
+describe('urlStatus', () => {
+  // live → bare URL, exit 0
+  test('live: bare URL and exit 0', () => {
+    expect(urlStatus(5269, true)).toEqual({ line: 'http://localhost:5269', code: 0 })
+  })
+
+  // down → URL with ` (down)` suffix, exit non-zero. The URL is still the
+  // real deterministic location (URL-1), useful even when nothing is listening.
+  test('down: URL with (down) suffix and non-zero exit', () => {
+    expect(urlStatus(5269, false)).toEqual({ line: 'http://localhost:5269 (down)', code: 1 })
   })
 })

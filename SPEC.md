@@ -138,3 +138,10 @@ assignment, stateless discovery, the dashboard, and the log viewer.
 |----|--------|-------------|
 | STATE-1 | Done | All grove state SHALL live in a shared `.grove/` at the main repo root (`instances/<name>.json`, `logs/<name>-{be,fe,up}.log`, `logs/dashboard.log`), so the dashboard sees every instance regardless of which worktree it runs from. `.grove/` SHALL be gitignored. |
 | STATE-2 | Done | The instance record SHALL be `{ name, dir, url, bePort, fePort, bePid, fePid, beLog, feLog }`. The listening **port** (not pid or cmdline) is the canonical identity of a running slot, since slot cmdlines are identical across worktrees. |
+
+## 9. URL lookup — `just grove-url [name]` (`URL`)
+
+| ID | Status | Requirement |
+|----|--------|-------------|
+| URL-1 | Done | `just grove-url` SHALL print the frontend URL of a worktree (no arg = current worktree; an arg resolves like UP-1). The URL SHALL be derived statelessly from `portsFor` (PORT-1/3), never guessed or scanned, so it is correct even when the server is down. |
+| URL-2 | Done | `grove-url` SHALL report liveness from a port probe (DASH-4): when the frontend port has a listener it SHALL print the bare URL and exit `0`; when it does not it SHALL print the URL with a ` (down)` suffix and exit non-zero. This makes it the single sanctioned way for an agent to find the running app and branch on up/down without parsing or guessing ports. |

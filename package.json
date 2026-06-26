@@ -7,6 +7,7 @@
   "bin": {
     "grove-up": "./grove-up.ts",
     "grove-down": "./grove-down.ts",
+    "grove-url": "./grove-url.ts",
     "grove": "./grove-dashboard.ts"
   }
 }
