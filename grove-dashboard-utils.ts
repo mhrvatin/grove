@@ -140,6 +140,28 @@ export function groveSummary(rows: Row[]): { running: number; total: number } {
   return { running: worktrees.filter((r) => r.running).length, total: worktrees.length }
 }
 
+// start/stop are deliberately quiet on success (no "▶ started" / "■ stopped"
+// banner) — only failures surface. This formats the one line we print when the
+// synchronous start/stop work throws.
+export function dashboardActionError(action: 'start' | 'stop', err: unknown): string {
+  return `grove dashboard ${action} failed: ${err instanceof Error ? err.message : String(err)}`
+}
+
+// Fill the dashboard.html placeholders (DASH-17). The `{{rows}}` slot takes a
+// function replacer so a literal `$` in the row markup — a `$&` or `$1` in a
+// worktree name — is inserted verbatim, never read as a String.replace special
+// pattern. running/total are numbers, so they carry no `$` and replace plainly.
+export function fillPageTemplate(
+  template: string,
+  rows: string,
+  summary: { running: number; total: number },
+): string {
+  return template
+    .replace('{{running}}', String(summary.running))
+    .replace('{{total}}', String(summary.total))
+    .replace('{{rows}}', () => rows)
+}
+
 export type RowStatus = 'live' | 'failed' | 'idle' | 'orphaned'
 
 // Three-state row status from stateless discovery (DASH-12). `running` is whether

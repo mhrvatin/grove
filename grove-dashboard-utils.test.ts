@@ -1,6 +1,8 @@
 import { describe, expect, test } from 'bun:test'
 import {
   buildRows,
+  dashboardActionError,
+  fillPageTemplate,
   formatPinoLog,
   groveSummary,
   instanceLogSections,
@@ -214,6 +216,36 @@ describe('isActionableName', () => {
 
   test('rejects shell-injection payloads', () => {
     expect(isActionableName('$(rm -rf ~)', dirs, instances)).toBe(false)
+  })
+})
+
+// covers: DASH-17
+describe('fillPageTemplate', () => {
+  const tpl =
+    '<i id=stat-running>{{running}}</i><i id=stat-total>{{total}}</i><tbody>{{rows}}</tbody>'
+
+  test('fills the running/total/rows placeholders', () => {
+    expect(fillPageTemplate(tpl, '<tr></tr>', { running: 2, total: 5 })).toBe(
+      '<i id=stat-running>2</i><i id=stat-total>5</i><tbody><tr></tr></tbody>',
+    )
+  })
+
+  test('inserts row markup verbatim — $& and $1 are not read as replace patterns', () => {
+    const rows = '<tr data-wt="a$&b$1c$`d"></tr>'
+    expect(fillPageTemplate(tpl, rows, { running: 0, total: 0 })).toContain('a$&b$1c$`d')
+  })
+})
+
+// covers: DASH-1a
+describe('dashboardActionError', () => {
+  test('unwraps an Error message into a labelled line', () => {
+    expect(dashboardActionError('start', new Error('EADDRINUSE'))).toBe(
+      'grove dashboard start failed: EADDRINUSE',
+    )
+  })
+
+  test('stringifies a non-Error throw', () => {
+    expect(dashboardActionError('stop', 'boom')).toBe('grove dashboard stop failed: boom')
   })
 })
 
