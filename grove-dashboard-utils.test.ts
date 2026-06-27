@@ -1,10 +1,9 @@
 import { describe, expect, test } from 'bun:test'
 import {
+  apiRow,
   buildRows,
   dashboardActionError,
-  fillPageTemplate,
   formatPinoLog,
-  groveSummary,
   instanceLogSections,
   isActionableName,
   isAllowedName,
@@ -105,22 +104,6 @@ describe('reaper state (reapTargets / prunedReaped)', () => {
   })
 })
 
-describe('groveSummary', () => {
-  test('counts running instances and total worktrees', () => {
-    const rows = buildRows(['/repo/a', '/repo/b', '/repo/c'], [inst('a'), inst('c')], config)
-    expect(groveSummary(rows)).toEqual({ running: 2, total: 3 })
-  })
-
-  test('zero of both for no worktrees', () => {
-    expect(groveSummary([])).toEqual({ running: 0, total: 0 })
-  })
-
-  test('excludes orphan tombstones from running and total (DASH-15)', () => {
-    const rows = buildRows(['/repo/a', '/repo/b'], [inst('a'), inst('gone')], config)
-    expect(groveSummary(rows)).toEqual({ running: 1, total: 2 })
-  })
-})
-
 describe('isAllowedName', () => {
   const dirs = ['/repo/main', '/repo/feat+x']
 
@@ -197,6 +180,40 @@ describe('rowStatus', () => {
   })
 })
 
+// covers: DASH-12
+describe('apiRow', () => {
+  const base = {
+    name: 'feat+x',
+    dir: '/repo/feat+x',
+    url: 'http://localhost:8888',
+    bePort: 9999,
+    fePort: 8888,
+  }
+
+  test('maps a row to the API DTO with a status computed from the live probe', () => {
+    expect(apiRow({ ...base, running: true, orphaned: false }, true)).toEqual({
+      name: 'feat+x',
+      url: 'http://localhost:8888',
+      bePort: 9999,
+      fePort: 8888,
+      status: 'live',
+      orphaned: false,
+    })
+  })
+
+  test('a running row with a dead probe is failed', () => {
+    expect(apiRow({ ...base, running: true, orphaned: false }, false).status).toBe('failed')
+  })
+
+  test('a non-running row is idle regardless of the probe', () => {
+    expect(apiRow({ ...base, running: false, orphaned: false }, false).status).toBe('idle')
+  })
+
+  test('an orphan row is orphaned', () => {
+    expect(apiRow({ ...base, running: false, orphaned: true }, false).status).toBe('orphaned')
+  })
+})
+
 describe('isActionableName', () => {
   const dirs = ['/repo/main', '/repo/feat+x']
   const instances = [inst('feat+x'), inst('gone')]
@@ -216,23 +233,6 @@ describe('isActionableName', () => {
 
   test('rejects shell-injection payloads', () => {
     expect(isActionableName('$(rm -rf ~)', dirs, instances)).toBe(false)
-  })
-})
-
-// covers: DASH-17
-describe('fillPageTemplate', () => {
-  const tpl =
-    '<i id=stat-running>{{running}}</i><i id=stat-total>{{total}}</i><tbody>{{rows}}</tbody>'
-
-  test('fills the running/total/rows placeholders', () => {
-    expect(fillPageTemplate(tpl, '<tr></tr>', { running: 2, total: 5 })).toBe(
-      '<i id=stat-running>2</i><i id=stat-total>5</i><tbody><tr></tr></tbody>',
-    )
-  })
-
-  test('inserts row markup verbatim — $& and $1 are not read as replace patterns', () => {
-    const rows = '<tr data-wt="a$&b$1c$`d"></tr>'
-    expect(fillPageTemplate(tpl, rows, { running: 0, total: 0 })).toContain('a$&b$1c$`d')
   })
 })
 

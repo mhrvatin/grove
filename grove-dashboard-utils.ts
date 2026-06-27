@@ -80,7 +80,7 @@ export function isSameOrigin(origin: string | null, port: number): boolean {
 
 // Ordered, keyed log sections shown for an instance: the launch log (grove-up's
 // own stdout/stderr, so failed starts are inspectable), then BE and FE. The keys
-// match the /logs/<name> JSON fields so each log renders in its own pane.
+// match the /api/logs/<name> JSON fields so each log renders in its own pane.
 export function instanceLogSections(logsDir: string, name: string): LogSection[] {
   return [
     { key: 'up', header: 'launch (just grove-up)', path: join(logsDir, `${name}-up.log`) },
@@ -129,37 +129,11 @@ export function formatPinoLog(text: string): string {
   return text.split('\n').map(formatPinoLine).join('\n')
 }
 
-// Header summary counts. `total` is exact (one row per worktree); `running` is
-// the instance-file count, so it includes *failed* rows (a file with a dead probe
-// — see rowStatus). It is only the server-render seed: updateCounts() recounts
-// `.live` rows client-side on load and after each poll for the spec-accurate
-// figure (DASH-13). No-JS clients see this looser seed.
-export function groveSummary(rows: Row[]): { running: number; total: number } {
-  // Orphan tombstones are not worktrees — exclude them from both counts (DASH-15).
-  const worktrees = rows.filter((r) => !r.orphaned)
-  return { running: worktrees.filter((r) => r.running).length, total: worktrees.length }
-}
-
 // start/stop are deliberately quiet on success (no "▶ started" / "■ stopped"
 // banner) — only failures surface. This formats the one line we print when the
 // synchronous start/stop work throws.
 export function dashboardActionError(action: 'start' | 'stop', err: unknown): string {
   return `grove dashboard ${action} failed: ${err instanceof Error ? err.message : String(err)}`
-}
-
-// Fill the dashboard.html placeholders (DASH-17). The `{{rows}}` slot takes a
-// function replacer so a literal `$` in the row markup — a `$&` or `$1` in a
-// worktree name — is inserted verbatim, never read as a String.replace special
-// pattern. running/total are numbers, so they carry no `$` and replace plainly.
-export function fillPageTemplate(
-  template: string,
-  rows: string,
-  summary: { running: number; total: number },
-): string {
-  return template
-    .replace('{{running}}', String(summary.running))
-    .replace('{{total}}', String(summary.total))
-    .replace('{{rows}}', () => rows)
 }
 
 export type RowStatus = 'live' | 'failed' | 'idle' | 'orphaned'
@@ -174,6 +148,33 @@ export function rowStatus(running: boolean, live: boolean, orphaned = false): Ro
   if (orphaned) return 'orphaned'
   if (!running) return 'idle'
   return live ? 'live' : 'failed'
+}
+
+// The per-row DTO the dashboard SPA polls from GET /api/rows. The server folds the
+// liveness probe (a browser can't probe arbitrary loopback ports) into a computed
+// `status` so the client never sees the raw running/live split. Shape is mirrored
+// — not imported — by src/types.ts, to keep node:path out of the browser bundle.
+export type ApiRow = {
+  name: string
+  url: string
+  bePort: number
+  fePort: number
+  status: RowStatus
+  orphaned: boolean
+}
+
+// Map an internal Row + its probe result to the API DTO. `live` is the caller's
+// port-probe outcome (server-side only); status collapses running/live/orphaned
+// via rowStatus (DASH-12).
+export function apiRow(row: Row, live: boolean): ApiRow {
+  return {
+    name: row.name,
+    url: row.url,
+    bePort: row.bePort,
+    fePort: row.fePort,
+    status: rowStatus(row.running, live, row.orphaned),
+    orphaned: row.orphaned,
+  }
 }
 
 export function buildRows(
