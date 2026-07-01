@@ -1,22 +1,24 @@
 // Pure logic + shared types for grove (the worktree dev launcher + dashboard):
 // the project-config shape, the worktree resolver, and the instance-record
-// builder. No I/O — all git/fs/process calls live in grove-instances.ts. The
+// builder. No I/O — all git/fs/process calls live in lib/instances.ts. The
 // Instance type is the on-disk shape of a .grove/instances/<name>.json file.
 
 // Resolved ports for a worktree's two slots.
 export type Ports = { be: number; fe: number }
 
-// One service slot (backend or frontend). `env` is a function because env values
-// cross-reference the other slot's port (the FE proxies /api to the BE port),
-// which a static map can't express.
+// One service slot (backend or frontend). `env` is static data loaded from
+// grove.config.jsonc; values may contain ${be}/${fe} placeholders that resolveEnv
+// interpolates against the slot's resolved ports — that placeholder is how a
+// slot's env references the other slot's port (the FE proxies /api to the BE
+// port), which plain JSON can't express with a function.
 export type GroveSlot = {
   portBase: number
   cmd: string[]
-  env: (ports: Ports) => Record<string, string>
+  env: Record<string, string>
 }
 
 // The single source of project-specific truth, loaded canonically from the main
-// repo's grove.config.ts. grove's whole domain is "a backend + a frontend per
+// repo's grove.config.jsonc. grove's whole domain is "a backend + a frontend per
 // worktree" — two fixed slots, not an arbitrary service list.
 export type GroveConfig = {
   envFile: string // symlinked into a worktree if missing
@@ -58,4 +60,16 @@ export function resolveWorktreeDir(
 // derived from the frontend port; everything else is passed in.
 export function makeInstance(parts: Omit<Instance, 'url'>): Instance {
   return { ...parts, url: `http://localhost:${parts.fePort}` }
+}
+
+// Interpolate ${be}/${fe} placeholders in a slot's env map against its resolved
+// ports. env is static data from grove.config.jsonc, so a value like
+// "http://localhost:${fe}" becomes "http://localhost:5173". Anything that isn't
+// a ${be}/${fe} placeholder is left untouched.
+export function resolveEnv(env: Record<string, string>, ports: Ports): Record<string, string> {
+  const out: Record<string, string> = {}
+  for (const [key, value] of Object.entries(env)) {
+    out[key] = value.replace(/\$\{(be|fe)\}/g, (_match, slot: 'be' | 'fe') => String(ports[slot]))
+  }
+  return out
 }

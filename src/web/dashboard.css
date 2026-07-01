@@ -1,6 +1,6 @@
 /* grove dashboard styles. Brand identity (the olive palette, leaf metaphor, status
    dots) is documented in docs/superpowers/specs/2026-06-26-grove-design.md.
-   Plain CSS served as-is by grove-dashboard.ts — no build step (SPEC DASH-17). */
+   Plain CSS served as-is by cli/dashboard.ts — no build step (SPEC DASH-17). */
 :root{
   --bg:oklch(1 0 0);--surface:oklch(0.976 0.006 110);--surface-2:oklch(0.958 0.009 110);
   --border:oklch(0.905 0.011 110);--border-strong:oklch(0.84 0.013 110);

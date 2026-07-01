@@ -1,6 +1,6 @@
 import type { ApiRow, Logs } from './types'
 
-// Thin client over the dashboard's JSON API (grove-dashboard.ts). All dynamic
+// Thin client over the dashboard's JSON API (cli/dashboard.ts). All dynamic
 // routes live under /api so the SPA index fallback never swallows them.
 
 async function getJson<T>(path: string): Promise<T> {

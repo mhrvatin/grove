@@ -1,7 +1,7 @@
-// Shared impure I/O for grove-up / grove-down / the dashboard: git, fs and
-// process calls. Pure logic + types live in grove-instances-utils.ts; this is
+// Shared impure I/O for `grove up` / `grove down` / the dashboard: git, fs and
+// process calls. Pure logic + types live in lib/instances-utils.ts; this is
 // the only module that touches the filesystem, git, lsof, the process table,
-// and that loads grove.config.ts. No top-level run, no shebang — it is imported.
+// and that loads grove.config.jsonc. No top-level run, no shebang — it is imported.
 import {
   existsSync,
   mkdirSync,
@@ -14,7 +14,7 @@ import {
 } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { pathToFileURL } from 'node:url'
-import { type GroveConfig, type Instance, makeInstance } from './grove-instances-utils.ts'
+import { type GroveConfig, type GroveSlot, type Instance, makeInstance } from './instances-utils.ts'
 
 export type { GroveConfig, Instance }
 export { makeInstance }
@@ -28,8 +28,8 @@ function gitOut(args: string[]): string {
 }
 
 // The main repo root (parent of the common git dir) — the canonical anchor for
-// both .grove/ and grove.config.ts, so every worktree agrees regardless of which
-// one invoked the command.
+// both .grove/ and grove.config.jsonc, so every worktree agrees regardless of
+// which one invoked the command.
 export function mainRepoRoot(): string {
   return dirname(gitOut(['rev-parse', '--path-format=absolute', '--git-common-dir']))
 }
@@ -39,19 +39,35 @@ export function groveRoot(): string {
   return join(mainRepoRoot(), '.grove')
 }
 
-// Load the main repo's grove.config.ts (never the invoking worktree's copy), so
-// grove-up, grove-down, and the dashboard read one config and agree on ports.
+// Load the main repo's grove.config.jsonc (never the invoking worktree's copy),
+// so `grove up`, `grove down`, and the dashboard read one config and agree on ports.
+// Bun parses .jsonc natively (comments stripped); the dynamic import keeps the
+// path off tsc's static module graph.
 let configCache: GroveConfig | null = null
 export async function loadConfig(): Promise<GroveConfig> {
   if (configCache) return configCache
-  const path = join(mainRepoRoot(), 'tools', 'grove', 'grove.config.ts')
+  const path = join(mainRepoRoot(), 'grove.config.jsonc')
   if (!existsSync(path)) {
-    console.error(`No grove.config.ts in main repo (${path})`)
+    console.error(`No grove.config.jsonc in main repo (${path})`)
     process.exit(1)
   }
   const mod = (await import(pathToFileURL(path).href)) as { default: GroveConfig }
-  configCache = mod.default
+  configCache = assertConfig(mod.default, path)
   return configCache
+}
+
+// JSON has no compile-time `satisfies` check, so validate the loaded shape:
+// both slots present with the { portBase, cmd, env } trio and a string envFile.
+function assertConfig(c: GroveConfig, path: string): GroveConfig {
+  const slotOk = (s: GroveSlot | undefined): boolean =>
+    !!s && typeof s.portBase === 'number' && Array.isArray(s.cmd) && typeof s.env === 'object'
+  if (typeof c?.envFile !== 'string' || !slotOk(c?.backend) || !slotOk(c?.frontend)) {
+    console.error(
+      `Malformed grove config (${path}): need envFile + backend/frontend {portBase,cmd,env}`,
+    )
+    process.exit(1)
+  }
+  return c
 }
 
 export function currentToplevel(): string {

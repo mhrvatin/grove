@@ -1,0 +1,44 @@
+{
+  // grove.config.jsonc — the single source of project-specific truth for grove
+  // (the worktree dev launcher + dashboard). The grove-*.ts scripts are
+  // project-agnostic; every project-specific fact lives here. Loaded canonically
+  // from the main repo (never the invoking worktree's checked-out copy) so
+  // grove-up, grove-down, and the dashboard all agree on ports.
+  //
+  // This file ships as an example — replace the placeholders with YOUR project's
+  // env file, prestart, and dev-server commands. Bun parses .jsonc natively, so
+  // comments like these are stripped at load time.
+
+  // The env file grove symlinks into a worktree from the main repo if it's
+  // missing, so secrets track the source and are never copied into git.
+  "envFile": ".env.local",
+
+  // Optional: a command run once before launch (e.g. ["just", "migrate"] against
+  // a shared dev DB). Idempotent prestarts are safe to repeat per launch. Remove
+  // this key entirely to skip the prestart step.
+  "prestart": ["echo", "configure a prestart command, or remove this key"],
+
+  // grove's domain is exactly two slots: a backend and a frontend per worktree.
+  // For each slot:
+  //   portBase — bottom of its reserved 100-port range (offset 0..99 per worktree)
+  //   cmd      — the dev-server command, run with the worktree as cwd
+  //   env      — extra environment variables; in values, ${be} and ${fe}
+  //              interpolate to this worktree's resolved backend/frontend ports.
+  "backend": {
+    "portBase": 8080,
+    "cmd": ["echo", "replace with your backend dev command"],
+    "env": {
+      "NODE_ENV": "development",
+      "PORT": "${be}"
+    }
+  },
+  "frontend": {
+    "portBase": 5173,
+    // A frontend dev server often needs the backend port to proxy /api to, in
+    // addition to its own listen port — so both ${be} and ${fe} can appear here.
+    "cmd": ["echo", "replace with your frontend dev command"],
+    "env": {
+      "PORT": "${fe}"
+    }
+  }
+}

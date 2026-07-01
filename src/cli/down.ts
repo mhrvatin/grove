@@ -1,6 +1,5 @@
-#!/usr/bin/env bun
 // Stop a worktree's instance (no arg = current worktree; `--all` = every
-// instance). Orchestration only — the kill/fs/git I/O lives in grove-instances.ts.
+// instance). Orchestration only — the kill/fs/git I/O lives in lib/instances.ts.
 import { basename } from 'node:path'
 import {
   currentToplevel,
@@ -8,9 +7,9 @@ import {
   readInstance,
   readInstances,
   removeInstance,
-} from './grove-instances.ts'
+} from '../lib/instances.ts'
 
-function stop(name: string): void {
+function stopWorktree(name: string): void {
   const inst = readInstance(name)
   if (!inst) {
     console.log(`not running: ${name}`)
@@ -21,9 +20,10 @@ function stop(name: string): void {
   console.log(`■ stopped ${name}`)
 }
 
-const target = process.argv[2] ?? ''
-if (target === '--all') {
-  for (const inst of readInstances()) stop(inst.name)
-} else {
-  stop(target || basename(currentToplevel()))
+export function run(target: string, all: boolean): void {
+  if (all) {
+    for (const inst of readInstances()) stopWorktree(inst.name)
+  } else {
+    stopWorktree(target || basename(currentToplevel()))
+  }
 }

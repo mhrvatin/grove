@@ -12,14 +12,14 @@ import {
   prunedReaped,
   reapTargets,
   rowStatus,
-} from './grove-dashboard-utils.ts'
-import type { GroveConfig } from './grove-instances-utils.ts'
-import { portsFor } from './grove-port-utils.ts'
+} from './dashboard-utils.ts'
+import type { GroveConfig } from './instances-utils.ts'
+import { portsFor } from './port-utils.ts'
 
 const config: GroveConfig = {
   envFile: '.env.local',
-  backend: { portBase: 8080, cmd: [], env: () => ({}) },
-  frontend: { portBase: 5173, cmd: [], env: () => ({}) },
+  backend: { portBase: 8080, cmd: [], env: {} },
+  frontend: { portBase: 5173, cmd: [], env: {} },
 }
 
 const inst = (name: string) => ({
@@ -128,7 +128,7 @@ describe('instanceLogSections', () => {
   test('returns keyed launch/BE/FE sections in order with paths from logsDir/name', () => {
     const sections = instanceLogSections('/repo/.grove/logs', 'feat+x')
     expect(sections.map((s) => s.key)).toEqual(['up', 'be', 'fe'])
-    expect(sections.map((s) => s.header)).toEqual(['launch (just grove-up)', 'BE', 'FE'])
+    expect(sections.map((s) => s.header)).toEqual(['launch (grove up)', 'BE', 'FE'])
     expect(sections.map((s) => s.path)).toEqual([
       '/repo/.grove/logs/feat+x-up.log',
       '/repo/.grove/logs/feat+x-be.log',

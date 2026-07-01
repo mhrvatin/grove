@@ -1,9 +1,8 @@
-#!/usr/bin/env bun
 // Web control panel for worktree dev instances. Stateless discovery:
 // `git worktree list` + .grove/instances/*.json + a port liveness probe.
-// Buttons spawn the grove-up / grove-down entrypoints directly (no `just`).
+// Buttons spawn the grove up / grove down subcommands directly (no `just`).
 //
-// Runs detached in the background (`just grove`); stop with `just grove-stop`.
+// Runs detached in the background (`grove start`); stop with `grove stop`.
 // No foreground process means no Ctrl+C to crash the recipe.
 // ponytail: localhost-only dev tool over trusted input (worktree names from
 // git), so no HTML-escaping / auth. Add both if this ever leaves localhost.
@@ -22,7 +21,7 @@ import {
   orphanInstances,
   prunedReaped,
   reapTargets,
-} from './grove-dashboard-utils.ts'
+} from '../lib/dashboard-utils.ts'
 import {
   groveRoot,
   killByPortAndPids,
@@ -32,7 +31,7 @@ import {
   portsInUse,
   readInstances,
   spawnDetached,
-} from './grove-instances.ts'
+} from '../lib/instances.ts'
 
 const PORT = Number(process.env['DASHBOARD_PORT']) || 4000
 const repoRoot = mainRepoRoot()
@@ -58,7 +57,7 @@ function tail(file: string, lines = 200): string {
 async function apiRows(): Promise<ApiRow[]> {
   // Load config lazily on the serve path only — `start`/`stop` are config-
   // independent (just a port-kill / detached respawn), so stopping the dashboard
-  // must never fail because grove.config.ts isn't on main yet. loadConfig caches.
+  // must never fail because grove.config.jsonc isn't on main yet. loadConfig caches.
   const config = await loadConfig()
   const worktreeDirs = listWorktreeDirs()
   const instances = readInstances()
@@ -85,11 +84,16 @@ async function apiRows(): Promise<ApiRow[]> {
   return Promise.all(rows.map(async (r) => apiRow(r, r.running && (await alive(r.fePort)))))
 }
 
-// The dashboard is a React + Vite SPA built to dist/ (DASH-18). Serve its assets
-// straight off disk; any non-/api path that isn't a real file falls back to
-// index.html (single-screen app, no client router). import.meta.dir is this
-// script's dir regardless of the detached serve process's cwd, so dist/ resolves.
-const DIST = join(import.meta.dir, 'dist')
+// grove's own install dir (the repo root) — this script lives in src/cli/, so it
+// is two levels up. Distinct from repoRoot above (mainRepoRoot = the *consumer*
+// repo grove drives). import.meta.dir is this script's dir regardless of the
+// detached serve process's cwd, so both dist/ and the vite build cwd resolve.
+const groveDir = join(import.meta.dir, '..', '..')
+
+// The dashboard is a React + Vite SPA built to dist/ at the grove repo root
+// (DASH-18). Serve its assets straight off disk; any non-/api path that isn't a
+// real file falls back to index.html (single-screen app, no client router).
+const DIST = join(groveDir, 'dist')
 
 async function serveStatic(pathname: string): Promise<Response> {
   // URL.pathname normalises away any `../`, so this join can't escape DIST.
@@ -113,17 +117,17 @@ function decodeName(seg: string | undefined): string {
 }
 
 function up(name: string): void {
-  // Fire-and-return; grove-up detaches its own processes (and may wait ~30s to
+  // Fire-and-return; grove up detaches its own processes (and may wait ~30s to
   // bind). Capture output to a per-instance launch log so failed starts are
   // inspectable from the dashboard. ponytail: truncate per start ('w'), no rotation.
   const logsDir = join(groveRoot(), 'logs')
-  mkdirSync(logsDir, { recursive: true }) // dir may not exist before grove-up's own mkdir
+  mkdirSync(logsDir, { recursive: true }) // dir may not exist before grove up's own mkdir
   const fd = openSync(join(logsDir, `${name}-up.log`), 'w')
-  // Spawn the grove-up entrypoint directly (not via `just`) so the dashboard
+  // Spawn the grove entrypoint directly (not via `just`) so the dashboard
   // stays project-agnostic — no dependency on the consumer's task runner or
   // recipe names. The child inherits a dup of fd, so close ours immediately to
   // avoid leaking a descriptor per click in this long-lived process.
-  Bun.spawn(['bun', 'run', join(import.meta.dir, 'grove-up.ts'), name], {
+  Bun.spawn(['bun', 'run', join(import.meta.dir, 'grove.ts'), 'up', name], {
     cwd: repoRoot,
     stdout: fd,
     stderr: fd,
@@ -133,14 +137,14 @@ function up(name: string): void {
 
 function down(name: string): void {
   // Synchronous so callers (incl. restart) know the ports are freed before reusing them.
-  Bun.spawnSync(['bun', 'run', join(import.meta.dir, 'grove-down.ts'), name], {
+  Bun.spawnSync(['bun', 'run', join(import.meta.dir, 'grove.ts'), 'down', name], {
     cwd: repoRoot,
     stdout: 'ignore',
     stderr: 'ignore',
   })
 }
 
-function serve(): void {
+export function serve(): void {
   Bun.serve({
     port: PORT,
     // Loopback-only: this is a localhost dev tool with no auth, so the kernel —
@@ -218,7 +222,7 @@ function serve(): void {
   console.log(`dashboard on http://localhost:${PORT}`)
 }
 
-function start(): void {
+export function start(): void {
   // Quiet on success — no "▶ started" banner (the URL is the fixed localhost:PORT).
   // Only failures surface (DASH-1a idempotency: an already-running dashboard is a
   // silent no-op, not an error). start() is fire-and-forget detached, so this
@@ -231,17 +235,17 @@ function start(): void {
     // lives in `bun run build` (CI / `just build grove`). The no-op check above
     // means an already-running dashboard never pays this build cost.
     const built = Bun.spawnSync(['bun', 'run', 'build:bundle'], {
-      cwd: import.meta.dir,
+      cwd: groveDir,
       stdout: 'inherit',
       stderr: 'inherit',
     })
     if (!built.success) throw new Error('vite build failed (see output above)')
     mkdirSync(join(groveRoot(), 'logs'), { recursive: true })
     const log = join(groveRoot(), 'logs', 'dashboard.log')
-    // Re-launch this same script in `serve` mode, detached, so closing the
-    // terminal (or Ctrl+C) leaves it running. import.meta.path is this file's
-    // absolute path (= argv[1] when run as the entrypoint), typed as string.
-    spawnDetached(['bun', 'run', import.meta.path, 'serve'], {
+    // Re-launch grove.ts in `serve` mode, detached, so closing the terminal (or
+    // Ctrl+C) leaves it running. import.meta.dir is this file's directory, so
+    // this resolves correctly regardless of the calling process's cwd.
+    spawnDetached(['bun', 'run', join(import.meta.dir, 'grove.ts'), 'serve'], {
       cwd: repoRoot,
       env: {},
       logFile: log,
@@ -251,7 +255,7 @@ function start(): void {
   }
 }
 
-function stop(): void {
+export function stop(): void {
   // Quiet on success; surface only a failure to kill the listener.
   try {
     killByPortAndPids([PORT], [])
@@ -259,8 +263,3 @@ function stop(): void {
     console.error(dashboardActionError('stop', err))
   }
 }
-
-const mode = process.argv[2] ?? 'start'
-if (mode === 'serve') serve()
-else if (mode === 'stop') stop()
-else start()

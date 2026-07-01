@@ -1,8 +1,8 @@
 import { describe, expect, test } from 'bun:test'
-import type { GroveConfig } from './grove-instances-utils.ts'
-import { portsFor, urlStatus } from './grove-port-utils.ts'
+import type { GroveConfig } from './instances-utils.ts'
+import { portsFor, urlStatus } from './port-utils.ts'
 
-const slot = (portBase: number) => ({ portBase, cmd: [], env: () => ({}) })
+const slot = (portBase: number) => ({ portBase, cmd: [], env: {} })
 const config: GroveConfig = {
   envFile: '.env.local',
   backend: slot(8080),

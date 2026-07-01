@@ -1,11 +1,11 @@
 // Pure model for the grove dashboard: cross-reference the git worktree list with
 // the .grove/instances/*.json files to produce one row per worktree. Stateless —
 // no instance file means "idle", and ports for idle worktrees are derived
-// the same way grove-up derives them (via portsFor + config), so the URL is shown
+// the same way `grove up` derives them (via portsFor + config), so the URL is shown
 // even before launch.
 import { join } from 'node:path'
-import type { GroveConfig, Instance } from './grove-instances-utils.ts'
-import { portsFor } from './grove-port-utils.ts'
+import type { GroveConfig, Instance } from './instances-utils.ts'
+import { portsFor } from './port-utils.ts'
 
 export type { Instance }
 
@@ -27,10 +27,9 @@ function basename(p: string): string {
 }
 
 // Accept only names that are actual worktrees. The dashboard hands `name` to
-// `just grove-up/grove-down`, which textually interpolates `{{target}}` into a
-// shell recipe — so an unconstrained name from the HTTP path is a command-
-// injection vector. Real worktree basenames are `[A-Za-z0-9._+-]`, so exact-set
-// membership closes the hole without a separate character allowlist.
+// `grove up`/`grove down` — so an unconstrained name from the HTTP path is a
+// command-injection vector. Real worktree basenames are `[A-Za-z0-9._+-]`, so
+// exact-set membership closes the hole without a separate character allowlist.
 export function isAllowedName(name: string, worktreeDirs: string[]): boolean {
   return name.length > 0 && worktreeDirs.some((d) => basename(d) === name)
 }
@@ -78,12 +77,12 @@ export function isSameOrigin(origin: string | null, port: number): boolean {
   return origin === null || origin === `http://localhost:${port}`
 }
 
-// Ordered, keyed log sections shown for an instance: the launch log (grove-up's
+// Ordered, keyed log sections shown for an instance: the launch log (`grove up`'s
 // own stdout/stderr, so failed starts are inspectable), then BE and FE. The keys
 // match the /api/logs/<name> JSON fields so each log renders in its own pane.
 export function instanceLogSections(logsDir: string, name: string): LogSection[] {
   return [
-    { key: 'up', header: 'launch (just grove-up)', path: join(logsDir, `${name}-up.log`) },
+    { key: 'up', header: 'launch (grove up)', path: join(logsDir, `${name}-up.log`) },
     { key: 'be', header: 'BE', path: join(logsDir, `${name}-be.log`) },
     { key: 'fe', header: 'FE', path: join(logsDir, `${name}-fe.log`) },
   ]
@@ -153,7 +152,7 @@ export function rowStatus(running: boolean, live: boolean, orphaned = false): Ro
 // The per-row DTO the dashboard SPA polls from GET /api/rows. The server folds the
 // liveness probe (a browser can't probe arbitrary loopback ports) into a computed
 // `status` so the client never sees the raw running/live split. Shape is mirrored
-// — not imported — by src/types.ts, to keep node:path out of the browser bundle.
+// — not imported — by web/types.ts, to keep node:path out of the browser bundle.
 export type ApiRow = {
   name: string
   url: string

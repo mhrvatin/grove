@@ -6,7 +6,7 @@ import type { ApiRow } from './types'
 // instance file, so its row stays server-`idle` forever).
 export type ClientState = { pending: Map<string, number>; failed: Set<string> }
 
-// > grove-up's worst-case sequential bind wait (30s BE + 30s FE), so a slow-but-
+// > `grove up`'s worst-case sequential bind wait (30s BE + 30s FE), so a slow-but-
 // legit start is never falsely flagged. A still-pending row past this is a
 // fast-fail (DASH-11).
 export const BACKSTOP_MS = 70_000

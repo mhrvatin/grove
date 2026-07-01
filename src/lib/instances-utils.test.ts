@@ -1,29 +1,29 @@
 import { describe, expect, test } from 'bun:test'
-import { makeInstance, resolveWorktreeDir } from './grove-instances-utils.ts'
+import { makeInstance, resolveEnv, resolveWorktreeDir } from './instances-utils.ts'
 
 const DIRS = [
-  '/Users/me/facit',
-  '/Users/me/facit/.claude/worktrees/feat+dev-up-combined',
-  '/Users/me/facit/.claude/worktrees/fix+bar',
+  '/Users/me/myrepo',
+  '/Users/me/myrepo/.claude/worktrees/feat+dev-up-combined',
+  '/Users/me/myrepo/.claude/worktrees/fix+bar',
 ]
 
 describe('resolveWorktreeDir', () => {
   test('empty target resolves to the current toplevel', () => {
-    expect(resolveWorktreeDir('', DIRS, '/Users/me/facit/.claude/worktrees/x')).toBe(
-      '/Users/me/facit/.claude/worktrees/x',
+    expect(resolveWorktreeDir('', DIRS, '/Users/me/myrepo/.claude/worktrees/x')).toBe(
+      '/Users/me/myrepo/.claude/worktrees/x',
     )
   })
 
   test('matches a worktree by name fragment', () => {
     expect(resolveWorktreeDir('fix+bar', DIRS, '/cur')).toBe(
-      '/Users/me/facit/.claude/worktrees/fix+bar',
+      '/Users/me/myrepo/.claude/worktrees/fix+bar',
     )
   })
 
   test('an absolute worktree path resolves to its own entry (first match wins)', () => {
     // The main repo path is a substring of the longer combined path, but the
     // main entry comes first in the list — mirrors `git worktree list` order.
-    expect(resolveWorktreeDir('/Users/me/facit', DIRS, '/cur')).toBe('/Users/me/facit')
+    expect(resolveWorktreeDir('/Users/me/myrepo', DIRS, '/cur')).toBe('/Users/me/myrepo')
   })
 
   test('returns null when nothing matches', () => {
@@ -74,5 +74,28 @@ describe('makeInstance', () => {
       feLog: 'f',
     })
     expect(JSON.parse(JSON.stringify(inst))).toEqual(inst)
+  })
+})
+
+describe('resolveEnv', () => {
+  const ports = { be: 8085, fe: 5178 }
+
+  test('interpolates ${be} and ${fe} placeholders', () => {
+    expect(resolveEnv({ PORT: '${be}', ORIGIN: 'http://localhost:${fe}' }, ports)).toEqual({
+      PORT: '8085',
+      ORIGIN: 'http://localhost:5178',
+    })
+  })
+
+  test('leaves literal values untouched', () => {
+    expect(resolveEnv({ NODE_ENV: 'development' }, ports)).toEqual({ NODE_ENV: 'development' })
+  })
+
+  test('replaces every occurrence within one value', () => {
+    expect(resolveEnv({ X: '${be}-${fe}-${be}' }, ports)).toEqual({ X: '8085-5178-8085' })
+  })
+
+  test('returns an empty object for an empty env map', () => {
+    expect(resolveEnv({}, ports)).toEqual({})
   })
 })
