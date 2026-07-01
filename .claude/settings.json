@@ -1,0 +1,64 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(bun add:*)",
+      "Bash(echo \"EXIT: $?\")",
+      "Bash(gh pr:*)",
+      "Bash(git add *)",
+      "Bash(git branch *)",
+      "Bash(git checkout -b *)",
+      "Bash(git checkout main)",
+      "Bash(git commit *)",
+      "Bash(git diff*)",
+      "Bash(git log*)",
+      "Bash(git pull origin main)",
+      "Bash(git push -u origin HEAD)",
+      "Bash(git rm *)",
+      "Bash(git status*)",
+      "Bash(git:*)",
+      "Bash(just build:*)",
+      "Bash(just db-down:*)",
+      "Bash(just db-reset:*)",
+      "Bash(just db-up:*)",
+      "Bash(just dev:*)",
+      "Bash(just lint-fix:*)",
+      "Bash(just lint:*)",
+      "Bash(just migrate-generate:*)",
+      "Bash(just migrate:*)",
+      "Bash(just test:*)",
+      "Bash(just typecheck:*)",
+      "Bash(just:*)",
+      "WebFetch(domain:biomejs.dev)",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "WebFetch(domain:www.npmjs.com)",
+      "WebSearch"
+    ],
+    "deny": [
+      "Bash(npm *)",
+      "Bash(npx *)",
+      "Bash(yarn *)",
+      "Bash(pnpm *)",
+      "Bash(pnpx *)"
+    ]
+  },
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "jq -r '.tool_input.file_path // empty' | { read -r f; [ -n \"$f\" ] && just lint-fix \"$f\"; } || true"
+          }
+        ]
+      }
+    ]
+  },
+  "enabledPlugins": {
+    "mhr-worktree@mhrvatin": true,
+    "mhr-pinning@mhrvatin": true,
+    "mhr-guardrails@mhrvatin": true
+  },
+  "autoMemoryEnabled": false
+}
