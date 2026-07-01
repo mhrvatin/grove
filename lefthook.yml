@@ -1,0 +1,14 @@
+pre-commit:
+  parallel: true
+  commands:
+    lint:
+      run: bun run biome check --write --no-errors-on-unmatched --staged .
+      stage_fixed: true
+
+pre-push:
+  parallel: false
+  commands:
+    build:
+      run: bun run build
+    test:
+      run: bun test

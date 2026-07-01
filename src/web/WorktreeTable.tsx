@@ -37,7 +37,7 @@ export function WorktreeTable({
                   <Icon id="leaf" className="mark" />
                   <h2>No worktrees yet</h2>
                   <p>
-                    Create a git worktree, then run <code>just grove-up</code> to plant it here.
+                    Create a git worktree, then run <code>grove up</code> to plant it here.
                   </p>
                 </div>
               </td>

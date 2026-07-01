@@ -80,7 +80,9 @@ describe('makeInstance', () => {
 describe('resolveEnv', () => {
   const ports = { be: 8085, fe: 5178 }
 
+  // biome-ignore lint/suspicious/noTemplateCurlyInString: literal ${be}/${fe} placeholder syntax under test, not template interpolation
   test('interpolates ${be} and ${fe} placeholders', () => {
+    // biome-ignore lint/suspicious/noTemplateCurlyInString: literal ${be}/${fe} placeholder syntax under test, not template interpolation
     expect(resolveEnv({ PORT: '${be}', ORIGIN: 'http://localhost:${fe}' }, ports)).toEqual({
       PORT: '8085',
       ORIGIN: 'http://localhost:5178',
@@ -92,6 +94,7 @@ describe('resolveEnv', () => {
   })
 
   test('replaces every occurrence within one value', () => {
+    // biome-ignore lint/suspicious/noTemplateCurlyInString: literal ${be}/${fe} placeholder syntax under test, not template interpolation
     expect(resolveEnv({ X: '${be}-${fe}-${be}' }, ports)).toEqual({ X: '8085-5178-8085' })
   })
 
