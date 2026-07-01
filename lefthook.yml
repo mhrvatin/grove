@@ -17,6 +17,23 @@ pre-push:
   parallel: false
   commands:
     build:
+      priority: 1
       run: bun run build
+    dist-fresh:
+      priority: 2
+      # grove ships a prebuilt dist/ (DASH-20) — consumers pulling grove as an
+      # external git dependency never install vite (a devDependency), so dist/
+      # must already be committed and in sync before a commit reaches a
+      # pinnable branch. `build` above just regenerated it; fail if that left
+      # dist/ dirty, so the mismatch is caught before push instead of by a
+      # consumer downstream.
+      run: |
+        if [ -n "$(git status --porcelain -- dist)" ]; then
+          echo "ERROR: dist/ is out of date with source (grove ships a prebuilt dist/ — DASH-20)."
+          echo "Run 'bun run build:bundle', then 'git add dist' and commit before pushing."
+          git status --porcelain -- dist
+          exit 1
+        fi
     test:
+      priority: 3
       run: bun test

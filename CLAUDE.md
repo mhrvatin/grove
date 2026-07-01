@@ -13,7 +13,7 @@ A **project-agnostic worktree dev launcher + dashboard**. It launches a backend 
 ```sh
 bun install
 bun run build          # full gate: tsc --noEmit (launcher) + tsc -p tsconfig.app.json --noEmit (SPA) + vite build
-bun run build:bundle   # vite build only — no typecheck (what `grove start` runs, so a type error never blocks viewing)
+bun run build:bundle   # vite build only — no typecheck; run this and commit dist/ before a version ships (DASH-20)
 bun test               # all tests (colocated *.test.ts under src/lib/ and src/web/)
 bun test src/lib/port-utils.test.ts # single file
 bun test -t "substring"             # tests matching a name
@@ -24,7 +24,7 @@ CLI entrypoints (single `grove` binary declared in `package.json` `bin`, run wit
 - `grove up [target]` — launch FE+BE for a worktree (no arg = current)
 - `grove down [target | --all]` — stop instances
 - `grove url [target]` — print FE URL; exits non-zero + ` (down)` suffix when nothing's listening
-- `grove start` — start the dashboard (idempotent; builds SPA on first start)
+- `grove start` — start the dashboard (idempotent; serves the prebuilt SPA from `dist/`, DASH-20)
 - `grove stop` — stop the dashboard
 - `grove serve` — internal re-launch arg (used by `grove start`; not in `--help`). `target` = current worktree when empty, else first worktree whose path contains the substring.
 
@@ -46,7 +46,7 @@ Vite root + entry (`index.html`), `vite.config.ts`, the two tsconfigs, `grove.co
 - `src/lib/port-utils.ts` — `portsFor` (deterministic name→offset hash) and `urlStatus`.
 - `src/lib/dashboard-utils.ts` — the dashboard's pure model: `buildRows`, `apiRow`/`rowStatus`, orphan logic (`orphanInstances`/`reapTargets`/`prunedReaped`), the security guards (`isAllowedName`/`isActionableName`/`isSameOrigin`), and `formatPinoLog`.
 
-The five `src/cli/` files are thin orchestration over those two layers. `src/cli/dashboard.ts` resolves the grove repo root via `groveDir = join(import.meta.dir, '..', '..')` (it lives two levels down) for the `dist/` path and the `vite build` cwd — distinct from `repoRoot`/`mainRepoRoot()`, which is the *consumer* repo grove drives.
+The five `src/cli/` files are thin orchestration over those two layers. `src/cli/dashboard.ts` resolves the grove repo root via `groveDir = join(import.meta.dir, '..', '..')` (it lives two levels down) to find the prebuilt `dist/` — distinct from `repoRoot`/`mainRepoRoot()`, which is the *consumer* repo grove drives.
 
 **Determinism & statelessness.** Ports derive from a hash of the worktree name (`portsFor`), so the same worktree always maps to the same URLs — there is no port registry to drift. Discovery is stateless: worktrees from `git worktree list`, ports from `portsFor`, liveness from a port probe. The listening **port** (not pid/cmdline) is the canonical identity of a slot, since slot cmdlines are identical across worktrees.
 
