@@ -4,6 +4,14 @@ pre-commit:
     lint:
       run: bun run biome check --write --no-errors-on-unmatched --staged .
       stage_fixed: true
+    no-secrets:
+      run: bash .claude/hooks/no-secrets-commit.sh
+    no-destructive-migration:
+      run: bash .claude/hooks/no-destructive-migration.sh
+    no-node-modules:
+      run: bash .claude/hooks/no-node-modules-commit.sh
+    no-main-commit:
+      run: bash .claude/hooks/no-main-commit.sh
 
 pre-push:
   parallel: false

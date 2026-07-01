@@ -1,3 +1,16 @@
 node_modules
 dist
 .grove
+node_modules/
+dist/
+.env*
+!.env.example
+*.tsbuildinfo
+.DS_Store
+*.png
+.vite/
+.claude/worktrees/
+.claude/skills/impeccable/
+.impeccable/
+docs/mocks/
+docs/*.pdf
