@@ -38,7 +38,7 @@ every worktree agrees on ports. Bun parses `.jsonc` natively, so comments are fi
 | `grove down [target]` | Stop a worktree's instances |
 | `grove down --all` | Stop all running instances |
 | `grove url [target]` | Print a worktree's URL (exits non-zero + `(down)` if nothing's listening) |
-| `grove start` | Start the dashboard (idempotent — no-op if already running; builds SPA on first start) |
+| `grove start` | Start the dashboard (idempotent — no-op if already running; serves the prebuilt SPA) |
 | `grove stop` | Stop the dashboard |
 
 `target` matches the current worktree when empty, otherwise the first worktree whose
