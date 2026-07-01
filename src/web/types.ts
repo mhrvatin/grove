@@ -16,3 +16,8 @@ export type ApiRow = {
 // The three keyed logs GET /api/logs/<name> returns (LOG-1), already formatted
 // server-side (BE pino lines humanised, LOG-3).
 export type Logs = { up: string; be: string; fe: string }
+
+// GET /api/meta (DASH-19) — the repo this dashboard instance is serving, since
+// the built SPA in dist/ is shared across all repos and only the running server
+// process knows which one it is.
+export type Meta = { repoName: string }

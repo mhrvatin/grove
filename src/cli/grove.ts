@@ -7,45 +7,46 @@ import { run as runUp } from './up.ts'
 import { run as runUrl } from './url.ts'
 
 // Internal re-launch arg used by `grove start` — pre-empt commander so it
-// never appears in --help.
+// never appears in --help. Must NOT process.exit after serve(): Bun.serve's
+// listener is what keeps this detached process alive, so exiting here would
+// tear the dashboard down the instant it starts.
 if (process.argv[2] === 'serve') {
   serve()
-  process.exit(0)
+} else {
+  const program = new Command()
+  program
+    .name('grove')
+    .description(
+      'Worktree dev launcher and dashboard — launches a backend + frontend per git worktree on deterministic ports',
+    )
+    .version(pkg.version)
+
+  program
+    .command('up [target]')
+    .description('Launch backend + frontend for a worktree (default: current worktree)')
+    .action(async (target = '') => runUp(target))
+
+  program
+    .command('down [target]')
+    .description("Stop a worktree's instances (default: current worktree)")
+    .option('--all', 'Stop all running instances')
+    .action((target = '', opts) => runDown(target, opts.all ?? false))
+
+  program
+    .command('url [target]')
+    .description(
+      'Print the frontend URL for a worktree; exits non-zero if nothing is listening (default: current worktree)',
+    )
+    .action(async (target = '') => runUrl(target))
+
+  program
+    .command('start')
+    .description(
+      'Start the dashboard (idempotent — no-op if already running; builds SPA on first start)',
+    )
+    .action(start)
+
+  program.command('stop').description('Stop the dashboard').action(stop)
+
+  program.parse()
 }
-
-const program = new Command()
-program
-  .name('grove')
-  .description(
-    'Worktree dev launcher and dashboard — launches a backend + frontend per git worktree on deterministic ports',
-  )
-  .version(pkg.version)
-
-program
-  .command('up [target]')
-  .description('Launch backend + frontend for a worktree (default: current worktree)')
-  .action(async (target = '') => runUp(target))
-
-program
-  .command('down [target]')
-  .description("Stop a worktree's instances (default: current worktree)")
-  .option('--all', 'Stop all running instances')
-  .action((target = '', opts) => runDown(target, opts.all ?? false))
-
-program
-  .command('url [target]')
-  .description(
-    'Print the frontend URL for a worktree; exits non-zero if nothing is listening (default: current worktree)',
-  )
-  .action(async (target = '') => runUrl(target))
-
-program
-  .command('start')
-  .description(
-    'Start the dashboard (idempotent — no-op if already running; builds SPA on first start)',
-  )
-  .action(start)
-
-program.command('stop').description('Stop the dashboard').action(stop)
-
-program.parse()

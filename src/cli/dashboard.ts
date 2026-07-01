@@ -11,6 +11,7 @@ import { join } from 'node:path'
 import {
   type ApiRow,
   apiRow,
+  basename,
   buildRows,
   dashboardActionError,
   formatPinoLog,
@@ -32,9 +33,11 @@ import {
   readInstances,
   spawnDetached,
 } from '../lib/instances.ts'
+import { dashboardPortFor } from '../lib/port-utils.ts'
 
-const PORT = Number(process.env['DASHBOARD_PORT']) || 4000
 const repoRoot = mainRepoRoot()
+const PORT = Number(process.env['DASHBOARD_PORT']) || dashboardPortFor(repoRoot)
+const repoName = basename(repoRoot)
 // Orphans already reaped (DASH-16) — kept so a reaped orphan's port, if a later
 // process rebinds it, is never re-SIGTERM'd. Pruned each poll to names that are
 // still orphans (prunedReaped), so it bounds reaping to once per orphan episode.
@@ -194,6 +197,7 @@ export function serve(): void {
         }
         return new Response('unknown action', { status: 404 })
       }
+      if (action === 'meta') return Response.json({ repoName })
       if (action === 'rows') return Response.json(await apiRows())
       if (action === 'logs' && name) {
         // Guard name first: it now flows into a filesystem path (path-traversal).
@@ -223,13 +227,16 @@ export function serve(): void {
 }
 
 export function start(): void {
-  // Quiet on success — no "▶ started" banner (the URL is the fixed localhost:PORT).
-  // Only failures surface (DASH-1a idempotency: an already-running dashboard is a
-  // silent no-op, not an error). start() is fire-and-forget detached, so this
-  // catches the synchronous mkdir/spawn failures; it cannot verify the dashboard
-  // actually bound.
+  // Always prints the URL (DASH-1b) — the port is now a per-repo hash (PORT-5),
+  // not a fixed well-known value, so silence on the no-op path would leave the
+  // caller with no way to know where their dashboard actually is. start() is
+  // fire-and-forget detached, so this catches only the synchronous mkdir/spawn
+  // failures; it cannot verify the dashboard actually bound.
   try {
-    if (portsInUse([PORT]).length > 0) return // already running → no-op, skip the build
+    if (portsInUse([PORT]).length > 0) {
+      console.log(`dashboard on http://localhost:${PORT}`) // already running → no-op, skip the build
+      return
+    }
     // Build the SPA to dist/ before serving (DASH-18). vite build only (no tsc) so
     // viewing the dashboard is never blocked by a type error; the full typecheck
     // lives in `bun run build` (CI / `just build grove`). The no-op check above
@@ -250,6 +257,7 @@ export function start(): void {
       env: {},
       logFile: log,
     })
+    console.log(`dashboard on http://localhost:${PORT}`)
   } catch (err) {
     console.error(dashboardActionError('start', err))
   }

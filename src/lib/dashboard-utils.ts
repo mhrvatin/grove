@@ -22,7 +22,7 @@ export type Row = {
 
 export type LogSection = { key: 'up' | 'be' | 'fe'; header: string; path: string }
 
-function basename(p: string): string {
+export function basename(p: string): string {
   return p.split('/').filter(Boolean).pop() ?? p
 }
 
