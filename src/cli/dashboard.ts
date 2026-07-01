@@ -90,11 +90,13 @@ async function apiRows(): Promise<ApiRow[]> {
 // grove's own install dir (the repo root) — this script lives in src/cli/, so it
 // is two levels up. Distinct from repoRoot above (mainRepoRoot = the *consumer*
 // repo grove drives). import.meta.dir is this script's dir regardless of the
-// detached serve process's cwd, so both dist/ and the vite build cwd resolve.
+// detached serve process's cwd, so dist/ resolves the same way.
 const groveDir = join(import.meta.dir, '..', '..')
 
-// The dashboard is a React + Vite SPA built to dist/ at the grove repo root
-// (DASH-18). Serve its assets straight off disk; any non-/api path that isn't a
+// The dashboard is a React + Vite SPA that ships prebuilt to dist/ at the grove
+// repo root (DASH-20) — grove is consumed as an external git dependency, where
+// devDependencies like vite are never installed, so dist/ can't be built at
+// runtime. Serve its assets straight off disk; any non-/api path that isn't a
 // real file falls back to index.html (single-screen app, no client router).
 const DIST = join(groveDir, 'dist')
 
@@ -103,7 +105,7 @@ async function serveStatic(pathname: string): Promise<Response> {
   const rel = pathname === '/' ? 'index.html' : pathname.slice(1)
   const file = Bun.file(join(DIST, rel))
   // Vite's hashed assets can cache freely; the unhashed index.html shell must
-  // always revalidate so a restart-rebuild's new asset hashes aren't missed.
+  // always revalidate so a new commit's updated asset hashes aren't missed.
   if (rel !== 'index.html' && (await file.exists())) return new Response(file)
   return new Response(Bun.file(join(DIST, 'index.html')), {
     headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' },
@@ -234,19 +236,19 @@ export function start(): void {
   // failures; it cannot verify the dashboard actually bound.
   try {
     if (portsInUse([PORT]).length > 0) {
-      console.log(`dashboard on http://localhost:${PORT}`) // already running → no-op, skip the build
+      console.log(`dashboard on http://localhost:${PORT}`) // already running → no-op
       return
     }
-    // Build the SPA to dist/ before serving (DASH-18). vite build only (no tsc) so
-    // viewing the dashboard is never blocked by a type error; the full typecheck
-    // lives in `bun run build` (CI / `just build grove`). The no-op check above
-    // means an already-running dashboard never pays this build cost.
-    const built = Bun.spawnSync(['bun', 'run', 'build:bundle'], {
-      cwd: groveDir,
-      stdout: 'inherit',
-      stderr: 'inherit',
-    })
-    if (!built.success) throw new Error('vite build failed (see output above)')
+    // dist/ ships prebuilt and committed (DASH-20) — grove is consumed as an
+    // external git dependency, where vite (a devDependency) is never installed,
+    // so start() can no longer build it here. A missing dist/index.html means
+    // the repo was packaged wrong, not something to fix by building on the fly.
+    if (!existsSync(join(DIST, 'index.html'))) {
+      throw new Error(
+        `dist/index.html not found at ${groveDir} — grove's dashboard SPA must be prebuilt ` +
+          "and committed (run 'bun run build:bundle' and commit dist/ before pinning a version)",
+      )
+    }
     mkdirSync(join(groveRoot(), 'logs'), { recursive: true })
     const log = join(groveRoot(), 'logs', 'dashboard.log')
     // Re-launch grove.ts in `serve` mode, detached, so closing the terminal (or
