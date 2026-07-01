@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import type { GroveConfig } from './instances-utils.ts'
-import { portsFor, urlStatus } from './port-utils.ts'
+import { dashboardPortFor, portsFor, urlStatus } from './port-utils.ts'
 
 const slot = (portBase: number) => ({ portBase, cmd: [], env: {} })
 const config: GroveConfig = {
@@ -39,6 +39,27 @@ describe('portsFor', () => {
 
   test('different names usually differ', () => {
     expect(portsFor('main', config)).not.toEqual(portsFor('feat+dev-up-combined', config))
+  })
+})
+
+// covers: PORT-5
+describe('dashboardPortFor', () => {
+  test('is deterministic for the same repo root', () => {
+    expect(dashboardPortFor('/Users/mhrvatin/personal/grove')).toBe(
+      dashboardPortFor('/Users/mhrvatin/personal/grove'),
+    )
+  })
+
+  test('stays within [4000, 4099]', () => {
+    for (const repoRoot of ['/Users/a/repo', '/Users/b/other-repo', '/x', '']) {
+      const port = dashboardPortFor(repoRoot)
+      expect(port).toBeGreaterThanOrEqual(4000)
+      expect(port).toBeLessThanOrEqual(4099)
+    }
+  })
+
+  test('different repo paths usually differ, even with the same basename', () => {
+    expect(dashboardPortFor('/Users/a/grove')).not.toBe(dashboardPortFor('/Users/b/grove'))
   })
 })
 

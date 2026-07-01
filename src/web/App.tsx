@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
-import { type Action, fetchRows, postAction } from './api'
+import { type Action, fetchMeta, fetchRows, postAction } from './api'
+import { gradientColorFor } from './color'
 import { Icon } from './Icon'
 import { type ClientState, reconcile } from './reconcile'
 import { Sprite } from './Sprite'
@@ -13,6 +14,21 @@ const EMPTY: ClientState = { pending: new Map(), failed: new Set() }
 export function App() {
   const { data: rows, refetch } = usePoll(fetchRows, 2000)
   const [client, setClient] = useState<ClientState>(EMPTY)
+  const [repoName, setRepoName] = useState<string | null>(null)
+
+  // Repo identity never changes during a session (DASH-19), so a plain mount
+  // effect — not usePoll — fetches it once and derives the gradient hue from it.
+  useEffect(() => {
+    fetchMeta()
+      .then((meta) => {
+        setRepoName(meta.repoName)
+        document.documentElement.style.setProperty(
+          '--gradient-color',
+          gradientColorFor(meta.repoName),
+        )
+      })
+      .catch(() => {})
+  }, [])
 
   // Fold each poll into the client launch state (DASH-11). performance.now() is read
   // here (not inside reconcile) so reconcile stays pure and unit-testable.
@@ -65,7 +81,7 @@ export function App() {
         <div className="brand">
           <Icon id="leaf" className="mark" />
           <div>
-            <div className="wordmark">grove</div>
+            <div className="wordmark">{repoName ? `Grove - ${repoName}` : 'Grove'}</div>
             <div className="tagline">worktree dev instances</div>
           </div>
         </div>

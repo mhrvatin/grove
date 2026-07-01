@@ -1,4 +1,4 @@
-import type { ApiRow, Logs } from './types'
+import type { ApiRow, Logs, Meta } from './types'
 
 // Thin client over the dashboard's JSON API (cli/dashboard.ts). All dynamic
 // routes live under /api so the SPA index fallback never swallows them.
@@ -11,6 +11,10 @@ async function getJson<T>(path: string): Promise<T> {
 
 export function fetchRows(): Promise<ApiRow[]> {
   return getJson<ApiRow[]>('/api/rows')
+}
+
+export function fetchMeta(): Promise<Meta> {
+  return getJson<Meta>('/api/meta')
 }
 
 export function fetchLogs(name: string): Promise<Logs> {

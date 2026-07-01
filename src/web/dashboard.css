@@ -18,7 +18,7 @@
 *{box-sizing:border-box}
 html{-webkit-font-smoothing:antialiased;text-rendering:optimizelegibility}
 body{margin:0;font-family:var(--sans);color:var(--ink);background:var(--bg);font-size:14px;line-height:1.5;min-height:100vh;
-  background-image:radial-gradient(120% 80% at 100% 0%,oklch(0.97 0.02 110) 0%,transparent 55%);background-attachment:fixed}
+  background-image:radial-gradient(120% 80% at 100% 0%,var(--gradient-color,oklch(0.97 0.02 110)) 0%,transparent 55%);background-attachment:fixed}
 .wrap{padding:1.75rem clamp(1rem,4vw,2.5rem) 4rem}
 a{color:inherit}
 header{display:flex;align-items:flex-end;justify-content:space-between;gap:1.5rem;flex-wrap:wrap;

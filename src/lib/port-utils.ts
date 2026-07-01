@@ -8,14 +8,28 @@
 import type { GroveConfig, Ports } from './instances-utils.ts'
 
 const SPAN = 100
+const DASHBOARD_PORT_BASE = 4000
+const DASHBOARD_PORT_SPAN = 100
+
+function hashOffset(s: string, span: number): number {
+  let hash = 0
+  for (let i = 0; i < s.length; i++) {
+    hash = (hash * 31 + s.charCodeAt(i)) % span
+  }
+  return ((hash % span) + span) % span
+}
 
 export function portsFor(name: string, config: GroveConfig): Ports {
-  let hash = 0
-  for (let i = 0; i < name.length; i++) {
-    hash = (hash * 31 + name.charCodeAt(i)) % SPAN
-  }
-  const offset = ((hash % SPAN) + SPAN) % SPAN
+  const offset = hashOffset(name, SPAN)
   return { be: config.backend.portBase + offset, fe: config.frontend.portBase + offset }
+}
+
+// Deterministic dashboard port per repo (PORT-5), so concurrent repos each get
+// their own dashboard instead of colliding on a static port. Hashes the repo's
+// *absolute path* (not just its basename) so two differently-located repos that
+// happen to share a folder name still land on different ports.
+export function dashboardPortFor(repoRoot: string): number {
+  return DASHBOARD_PORT_BASE + hashOffset(repoRoot, DASHBOARD_PORT_SPAN)
 }
 
 // The grove-url output line + exit code for a frontend port (URL-2). The URL is
