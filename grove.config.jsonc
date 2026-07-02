@@ -17,11 +17,14 @@
   //
   //     "server": {
   //       "portBase": 5173,
-  //       "cmd": ["bun", "--bun", "vite", "dev", "--port", "${port}"],
+  //       "cmd": ["bun", "--bun", "vite", "dev"],
   //       "env": { "PORT": "${port}" }
   //     }
   //
-  //   In single-process mode ${port} interpolates to the assigned server port.
+  //   In single-process mode ${port} interpolates into env values only, never
+  //   into cmd args (CFG-7) — so the dev server must read its port from the
+  //   env var above (e.g. vite.config.ts: `server.port = process.env.PORT`),
+  //   not from a --port flag in cmd.
 
   // The env file grove symlinks into a worktree from the main repo if it's
   // missing, so secrets track the source and are never copied into git.
