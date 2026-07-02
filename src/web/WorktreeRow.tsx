@@ -59,7 +59,15 @@ export function WorktreeRow({ row, effectiveStatus, clientFailed, pending, onAct
             {host} <Icon id="ext" />
           </a>
           <div className="ports">
-            api <b>{row.bePort}</b> · web <b>{row.fePort}</b>
+            {row.mode === 'single' ? (
+              <>
+                port <b>{row.port}</b>
+              </>
+            ) : (
+              <>
+                api <b>{row.bePort}</b> · web <b>{row.fePort}</b>
+              </>
+            )}
           </div>
         </td>
         <td className="col-actions">
@@ -75,7 +83,7 @@ export function WorktreeRow({ row, effectiveStatus, clientFailed, pending, onAct
       {logsOpen && (
         <tr className="logrow">
           <td colSpan={4}>
-            <LogDrawer name={row.name} />
+            <LogDrawer name={row.name} mode={row.mode} />
           </td>
         </tr>
       )}

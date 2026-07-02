@@ -34,8 +34,8 @@ assignment, stateless discovery, the dashboard, and the log viewer.
   dots, `role=tablist` on the log tabs, and AA contrast audits are explicitly **not
   goals** and SHALL NOT be treated as bugs. (This is a deliberate scope decision,
   not an oversight — see the design doc's "What we deliberately did not do".)
-- **Arbitrary N services.** Grove's domain is exactly two slots: a backend and a
-  frontend per worktree. Not a general service list.
+- **Arbitrary N services.** Grove supports one slot (single-process mode, CFG-7)
+  or two slots (dual-process mode, CFG-3) per worktree — not an arbitrary service list.
 - **Auto-start on worktree creation** (a WorktreeCreate hook).
 - **Crash auto-restart / log rotation.** Restart is the manual dashboard button;
   logs truncate on each start.
@@ -64,10 +64,11 @@ assignment, stateless discovery, the dashboard, and the log viewer.
 |----|--------|-------------|
 | CFG-1 | Done | All project-specific knowledge (commands, env, prestart, env-file) SHALL live in one `grove.config.jsonc`. The `grove-*.ts` scripts SHALL be project-agnostic and reference no project-specific facts. |
 | CFG-2 | Done | The config SHALL be loaded canonically from the **main repo** (`grove.config.jsonc` at the main-repo root, resolved via the git common dir), never the invoking worktree's checked-out copy, so `grove up`, `grove down`, and the dashboard all agree on ports regardless of which worktree or branch invoked them. Bun parses `.jsonc` natively (comments stripped). |
-| CFG-3 | Done | The config SHALL define exactly two slots, `backend` and `frontend`, each with `{ portBase, cmd, env }` where `env` is a static `Record<string,string>`. Env values MAY contain `${be}` and `${fe}` placeholders, which `resolveEnv` SHALL interpolate to the worktree's resolved backend/frontend ports — so a slot's env can reference the other slot's port without a function. |
+| CFG-3 | Done | **Dual-process mode** (default): the config SHALL define two slots, `backend` and `frontend`, each with `{ portBase, cmd, env }` where `env` is a static `Record<string,string>`. Env values MAY contain `${be}` and `${fe}` placeholders, which `resolveEnv` SHALL interpolate to the worktree's resolved backend/frontend ports. |
 | CFG-4 | Done | The config MAY define a `prestart` command array (e.g. `['just','migrate']`), run once before launch; omitting it SHALL skip the prestart step. |
 | CFG-5 | Done | The config SHALL name an `envFile`; `grove up` SHALL symlink it into a worktree from the main repo if missing (so secrets track the source and are never copied into git). |
 | CFG-6 | Done | Because config is loaded from the main repo (CFG-2), a branch whose changes *require* a config edit cannot be exercised from its own worktree — editing `grove.config.jsonc` is a main-branch change validated from the main checkout. This trade-off is accepted; port stability is worth it. |
+| CFG-7 | Done | **Single-process mode**: as an alternative to `backend`+`frontend`, the config MAY define a single `server` slot `{ portBase, cmd, env }`. Grove infers the mode structurally — `server` present → single-process; `backend`+`frontend` present → dual-process; any other combination is a config error. In single-process mode `grove up` spawns one process, waits for one port, and writes one instance record; the dashboard shows one port and two log tabs (launch / server). Env values MAY contain `${port}`, which `resolveEnv` interpolates to the server's assigned port. Single-process mode is intended for full-stack frameworks (SvelteKit, Next.js, Remix, Nuxt, etc.) where one dev server handles both the API and the UI. |
 
 ## 2. Port derivation (`PORT`)
 
@@ -135,8 +136,9 @@ assignment, stateless discovery, the dashboard, and the log viewer.
 
 | ID | Status | Requirement |
 |----|--------|-------------|
-| LOG-1 | Done | Each instance SHALL expose three separate logs — `launch` (grove up's own stdout/stderr, for failed-start inspection), `BE`, and `FE` — never concatenated. `GET /api/logs/<name>` SHALL return them as distinct fields `{ up, be, fe }`. |
-| LOG-2 | Done | The log viewer SHALL show **one** log at a time, switched by tabs, defaulting to BE. The selected tab SHALL survive the row-refresh poll. |
+| LOG-1 | Superseded by LOG-1a | ~~Each instance SHALL expose three separate logs — `launch` (grove up's own stdout/stderr, for failed-start inspection), `BE`, and `FE` — never concatenated. `GET /api/logs/<name>` SHALL return them as distinct fields `{ up, be, fe }`.~~ |
+| LOG-1a | Done | Each instance SHALL expose its logs as separate keyed fields — never concatenated — so each pane is independently scrollable. `GET /api/logs/<name>` SHALL return: dual mode → `{ up, be, fe }` (launch + BE + FE); single mode → `{ up, server }` (launch + server). The `launch` (`up`) log is always present regardless of mode. |
+| LOG-2 | Done | The log viewer SHALL show **one** log at a time, switched by tabs, defaulting to BE (dual mode) or server (single mode). The selected tab SHALL survive the row-refresh poll. |
 | LOG-2a | Superseded by LOG-2 | ~~The expanded log area shows the BE and FE logs as two side-by-side panes (plus a third launch pane), each independently scrollable.~~ |
 | LOG-3 | Done | The BE log is pino one-line JSON (stdout is piped to a file, so pino-pretty's TTY transport is off). The viewer SHALL render each pino line as a human, local-time-stamped line (`HH:mm:ss.SSS LEVEL msg key=val`). Non-pino lines (banners, stack traces, plain text) SHALL pass through unchanged. |
 | LOG-4 | Done | Logs SHALL be truncated on each start, with no rotation (logs are for short live-debug sessions). |
@@ -154,8 +156,10 @@ assignment, stateless discovery, the dashboard, and the log viewer.
 
 | ID | Status | Requirement |
 |----|--------|-------------|
-| STATE-1 | Done | All grove state SHALL live in a shared `.grove/` at the main repo root (`instances/<name>.json`, `logs/<name>-{be,fe,up}.log`, `logs/dashboard.log`), so the dashboard sees every instance regardless of which worktree it runs from. `.grove/` SHALL be gitignored. |
-| STATE-2 | Done | The instance record SHALL be `{ name, dir, url, bePort, fePort, bePid, fePid, beLog, feLog }`. The listening **port** (not pid or cmdline) is the canonical identity of a running slot, since slot cmdlines are identical across worktrees. |
+| STATE-1 | Superseded by STATE-1a | ~~All grove state SHALL live in a shared `.grove/` at the main repo root (`instances/<name>.json`, `logs/<name>-{be,fe,up}.log`, `logs/dashboard.log`), so the dashboard sees every instance regardless of which worktree it runs from. `.grove/` SHALL be gitignored.~~ |
+| STATE-1a | Done | All grove state SHALL live in a shared `.grove/` at the main repo root: `instances/<name>.json`, `logs/<name>-up.log` (always), `logs/<name>-{be,fe}.log` (dual mode) or `logs/<name>-server.log` (single mode), and `logs/dashboard.log`. The dashboard sees every instance regardless of which worktree it runs from. `.grove/` SHALL be gitignored. |
+| STATE-2 | Superseded by STATE-2a | ~~The instance record SHALL be `{ name, dir, url, bePort, fePort, bePid, fePid, beLog, feLog }`. The listening **port** (not pid or cmdline) is the canonical identity of a running slot, since slot cmdlines are identical across worktrees.~~ |
+| STATE-2a | Done | The instance record is a discriminated union on `kind`. Dual mode: `{ kind: 'dual', name, dir, url, bePort, fePort, bePid, fePid, beLog, feLog }`. Single mode: `{ kind: 'single', name, dir, url, port, pid, log }`. The listening **port** (not pid or cmdline) is the canonical identity of a running slot. Old instance files without a `kind` field are treated as `'dual'` for backward compatibility. |
 
 ## 9. URL lookup — `grove url [name]` (`URL`)
 

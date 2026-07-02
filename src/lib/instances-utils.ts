@@ -3,31 +3,48 @@
 // builder. No I/O — all git/fs/process calls live in lib/instances.ts. The
 // Instance type is the on-disk shape of a .grove/instances/<name>.json file.
 
-// Resolved ports for a worktree's two slots.
-export type Ports = { be: number; fe: number }
-
-// One service slot (backend or frontend). `env` is static data loaded from
-// grove.config.jsonc; values may contain ${be}/${fe} placeholders that resolveEnv
-// interpolates against the slot's resolved ports — that placeholder is how a
-// slot's env references the other slot's port (the FE proxies /api to the BE
-// port), which plain JSON can't express with a function.
+// One service slot (backend, frontend, or single-process server).
+// `env` is static data from grove.config.jsonc; values may contain ${be}/${fe}
+// (dual mode) or ${port} (single mode) placeholders that resolveEnv interpolates.
 export type GroveSlot = {
   portBase: number
   cmd: string[]
   env: Record<string, string>
 }
 
-// The single source of project-specific truth, loaded canonically from the main
-// repo's grove.config.jsonc. grove's whole domain is "a backend + a frontend per
-// worktree" — two fixed slots, not an arbitrary service list.
-export type GroveConfig = {
-  envFile: string // symlinked into a worktree if missing
-  prestart?: string[] // run once before launch (e.g. ['just', 'migrate']); omit to skip
+// Two-slot project: a separate backend and frontend process per worktree.
+export type DualConfig = {
+  envFile: string
+  prestart?: string[]
   backend: GroveSlot
   frontend: GroveSlot
 }
 
-export type Instance = {
+// Single-process project (SvelteKit, Next.js, Remix, Nuxt, etc.): one dev
+// server handles both the API and the UI. Use `server` instead of
+// `backend`+`frontend`. The `${port}` env placeholder resolves to the server's
+// assigned port (analogous to `${be}`/`${fe}` in dual mode).
+export type SingleConfig = {
+  envFile: string
+  prestart?: string[]
+  server: GroveSlot
+}
+
+export type GroveConfig = DualConfig | SingleConfig
+
+export function isSingleConfig(c: GroveConfig): c is SingleConfig {
+  return 'server' in c
+}
+
+// Resolved ports for a worktree — one per process. The `kind` discriminant lets
+// callers narrow without an extra boolean.
+export type DualPorts = { kind: 'dual'; be: number; fe: number }
+export type SinglePorts = { kind: 'single'; port: number }
+export type Ports = DualPorts | SinglePorts
+
+// On-disk .grove/instances/<name>.json — two variants, one per mode.
+export type DualInstance = {
+  kind: 'dual'
   name: string
   dir: string
   url: string
@@ -37,6 +54,28 @@ export type Instance = {
   fePid: number
   beLog: string
   feLog: string
+}
+
+export type SingleInstance = {
+  kind: 'single'
+  name: string
+  dir: string
+  url: string
+  port: number
+  pid: number
+  log: string
+}
+
+export type Instance = DualInstance | SingleInstance
+
+// Build the instance record for a dual (BE+FE) worktree.
+export function makeDualInstance(parts: Omit<DualInstance, 'kind' | 'url'>): DualInstance {
+  return { kind: 'dual', ...parts, url: `http://localhost:${parts.fePort}` }
+}
+
+// Build the instance record for a single-process worktree.
+export function makeSingleInstance(parts: Omit<SingleInstance, 'kind' | 'url'>): SingleInstance {
+  return { kind: 'single', ...parts, url: `http://localhost:${parts.port}` }
 }
 
 // Resolve a grove-up/grove-down target to a worktree directory, given the already
@@ -56,20 +95,20 @@ export function resolveWorktreeDir(
   return worktreeDirs.find((d) => d.includes(target)) ?? null
 }
 
-// Build the instance record written to .grove/instances/<name>.json. url is
-// derived from the frontend port; everything else is passed in.
-export function makeInstance(parts: Omit<Instance, 'url'>): Instance {
-  return { ...parts, url: `http://localhost:${parts.fePort}` }
-}
-
-// Interpolate ${be}/${fe} placeholders in a slot's env map against its resolved
-// ports. env is static data from grove.config.jsonc, so a value like
-// "http://localhost:${fe}" becomes "http://localhost:5173". Anything that isn't
-// a ${be}/${fe} placeholder is left untouched.
+// Interpolate env placeholders against resolved ports.
+// Dual mode: ${be} and ${fe} → the backend/frontend port numbers.
+// Single mode: ${port} → the server port number.
 export function resolveEnv(env: Record<string, string>, ports: Ports): Record<string, string> {
   const out: Record<string, string> = {}
   for (const [key, value] of Object.entries(env)) {
-    out[key] = value.replace(/\$\{(be|fe)\}/g, (_match, slot: 'be' | 'fe') => String(ports[slot]))
+    if (ports.kind === 'dual') {
+      const { be, fe } = ports
+      out[key] = value.replace(/\$\{(be|fe)\}/g, (_match, slot: 'be' | 'fe') =>
+        String(slot === 'be' ? be : fe),
+      )
+    } else {
+      out[key] = value.replace(/\$\{port\}/g, String(ports.port))
+    }
   }
   return out
 }

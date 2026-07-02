@@ -1,6 +1,7 @@
 // Stop a worktree's instance (no arg = current worktree; `--all` = every
 // instance). Orchestration only — the kill/fs/git I/O lives in lib/instances.ts.
 import { basename } from 'node:path'
+import { instancePids, instancePorts } from '../lib/dashboard-utils.ts'
 import {
   currentToplevel,
   killByPortAndPids,
@@ -15,7 +16,7 @@ function stopWorktree(name: string): void {
     console.log(`not running: ${name}`)
     return
   }
-  killByPortAndPids([inst.bePort, inst.fePort], [inst.bePid, inst.fePid])
+  killByPortAndPids(instancePorts(inst), instancePids(inst))
   removeInstance(name)
   console.log(`■ stopped ${name}`)
 }

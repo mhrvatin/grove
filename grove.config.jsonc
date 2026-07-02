@@ -8,6 +8,20 @@
   // This file ships as an example — replace the placeholders with YOUR project's
   // env file, prestart, and dev-server commands. Bun parses .jsonc natively, so
   // comments like these are stripped at load time.
+  //
+  // TWO MODES — pick one:
+  //
+  //   Dual-process (below): separate backend + frontend commands per worktree.
+  //   Single-process: one full-stack dev server (SvelteKit, Next.js, Remix, …)
+  //     Replace backend+frontend with a single "server" slot:
+  //
+  //     "server": {
+  //       "portBase": 5173,
+  //       "cmd": ["bun", "--bun", "vite", "dev", "--port", "${port}"],
+  //       "env": { "PORT": "${port}" }
+  //     }
+  //
+  //   In single-process mode ${port} interpolates to the assigned server port.
 
   // The env file grove symlinks into a worktree from the main repo if it's
   // missing, so secrets track the source and are never copied into git.
@@ -18,7 +32,7 @@
   // this key entirely to skip the prestart step.
   "prestart": ["echo", "configure a prestart command, or remove this key"],
 
-  // grove's domain is exactly two slots: a backend and a frontend per worktree.
+  // Dual-process mode: a backend and a frontend per worktree.
   // For each slot:
   //   portBase — bottom of its reserved 100-port range (offset 0..99 per worktree)
   //   cmd      — the dev-server command, run with the worktree as cwd

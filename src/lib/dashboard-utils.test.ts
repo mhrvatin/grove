@@ -5,10 +5,13 @@ import {
   dashboardActionError,
   formatPinoLog,
   instanceLogSections,
+  instancePids,
+  instancePorts,
   isActionableName,
   isAllowedName,
   isSameOrigin,
   orphanInstances,
+  probePort,
   prunedReaped,
   reapTargets,
   rowStatus,
@@ -16,13 +19,20 @@ import {
 import type { GroveConfig } from './instances-utils.ts'
 import { portsFor } from './port-utils.ts'
 
-const config: GroveConfig = {
+const dualConfig: GroveConfig = {
   envFile: '.env.local',
   backend: { portBase: 8080, cmd: [], env: {} },
   frontend: { portBase: 5173, cmd: [], env: {} },
 }
 
+const singleConfig: GroveConfig = {
+  envFile: '.env.local',
+  server: { portBase: 5173, cmd: [], env: {} },
+}
+
+// A dual instance fixture (pre-single-slot feature: kind defaults to 'dual').
 const inst = (name: string) => ({
+  kind: 'dual' as const,
   name,
   dir: `/repo/${name}`,
   bePort: 9999,
@@ -34,33 +44,63 @@ const inst = (name: string) => ({
   url: 'http://localhost:8888',
 })
 
-describe('buildRows', () => {
+const singleInst = (name: string) => ({
+  kind: 'single' as const,
+  name,
+  dir: `/repo/${name}`,
+  port: 5200,
+  pid: 1,
+  log: 's',
+  url: 'http://localhost:5200',
+})
+
+describe('buildRows — dual config', () => {
   test('marks worktrees with an instance file as running', () => {
-    const rows = buildRows(['/repo/main', '/repo/feat+x'], [inst('feat+x')], config)
+    const rows = buildRows(['/repo/main', '/repo/feat+x'], [inst('feat+x')], dualConfig)
     expect(rows.find((r) => r.name === 'feat+x')?.running).toBe(true)
     expect(rows.find((r) => r.name === 'main')?.running).toBe(false)
   })
 
   test('derives ports from the name + config when not running', () => {
-    const rows = buildRows(['/repo/main'], [], config)
-    const { be, fe } = portsFor('main', config)
-    expect(rows[0]).toMatchObject({ running: false, bePort: be, fePort: fe })
+    const rows = buildRows(['/repo/main'], [], dualConfig)
+    const ports = portsFor('main', dualConfig)
+    if (ports.kind !== 'dual') throw new Error('expected dual')
+    expect(rows[0]).toMatchObject({
+      kind: 'dual',
+      running: false,
+      bePort: ports.be,
+      fePort: ports.fe,
+    })
   })
 
   test('uses instance ports/url when running', () => {
-    const rows = buildRows(['/repo/feat+x'], [inst('feat+x')], config)
+    const rows = buildRows(['/repo/feat+x'], [inst('feat+x')], dualConfig)
     expect(rows[0]).toMatchObject({ bePort: 9999, fePort: 8888, url: 'http://localhost:8888' })
   })
 
   test('one row per worktree', () => {
-    expect(buildRows(['/repo/a', '/repo/b'], [inst('a')], config)).toHaveLength(2)
+    expect(buildRows(['/repo/a', '/repo/b'], [inst('a')], dualConfig)).toHaveLength(2)
   })
 
   test('appends an orphan row for an instance whose worktree is gone (DASH-15)', () => {
-    const rows = buildRows(['/repo/main'], [inst('gone')], config)
+    const rows = buildRows(['/repo/main'], [inst('gone')], dualConfig)
     expect(rows.find((r) => r.name === 'main')?.orphaned).toBe(false)
     const orphan = rows.find((r) => r.name === 'gone')
     expect(orphan).toMatchObject({ orphaned: true, running: false, url: 'http://localhost:8888' })
+  })
+})
+
+describe('buildRows — single config', () => {
+  test('derives a single port from config for an idle worktree', () => {
+    const rows = buildRows(['/repo/main'], [], singleConfig)
+    const ports = portsFor('main', singleConfig)
+    if (ports.kind !== 'single') throw new Error('expected single')
+    expect(rows[0]).toMatchObject({ kind: 'single', running: false, port: ports.port })
+  })
+
+  test('uses instance port/url when running', () => {
+    const rows = buildRows(['/repo/feat+sk'], [singleInst('feat+sk')], singleConfig)
+    expect(rows[0]).toMatchObject({ kind: 'single', port: 5200, url: 'http://localhost:5200' })
   })
 })
 
@@ -84,23 +124,61 @@ describe('reaper state (reapTargets / prunedReaped)', () => {
 
   test('prunedReaped keeps only names that are still orphans', () => {
     const reaped = new Set(['gone', 'recreated'])
-    // 'recreated' is no longer an orphan (its worktree came back) → evicted.
     expect([...prunedReaped(reaped, [inst('gone')])]).toEqual(['gone'])
   })
 
   test('a remove→recreate→remove worktree reaps fresh on each removal episode', () => {
     let reaped = new Set<string>()
-    // 1. removed → orphan, not yet reaped → reap target, then mark reaped
     expect(reapTargets(reaped, [inst('w')]).map((o) => o.name)).toEqual(['w'])
     reaped.add('w')
     reaped = prunedReaped(reaped, [inst('w')])
-    // steady tombstone: reaped at most once while it stays an orphan
     expect(reapTargets(reaped, [inst('w')])).toEqual([])
-    // 2. recreated → no longer an orphan → name evicted
     reaped = prunedReaped(reaped, [])
     expect([...reaped]).toEqual([])
-    // 3. removed again → orphan again → reaps fresh
     expect(reapTargets(reaped, [inst('w')]).map((o) => o.name)).toEqual(['w'])
+  })
+})
+
+describe('instancePorts / instancePids', () => {
+  test('dual: returns both be and fe ports/pids', () => {
+    expect(instancePorts(inst('a'))).toEqual([9999, 8888])
+    expect(instancePids(inst('a'))).toEqual([1, 2])
+  })
+
+  test('single: returns the one server port/pid', () => {
+    expect(instancePorts(singleInst('a'))).toEqual([5200])
+    expect(instancePids(singleInst('a'))).toEqual([1])
+  })
+})
+
+describe('probePort', () => {
+  test('dual: probes the frontend port', () => {
+    expect(
+      probePort({
+        kind: 'dual',
+        name: 'a',
+        dir: '/r/a',
+        url: 'u',
+        bePort: 8080,
+        fePort: 5173,
+        running: false,
+        orphaned: false,
+      }),
+    ).toBe(5173)
+  })
+
+  test('single: probes the server port', () => {
+    expect(
+      probePort({
+        kind: 'single',
+        name: 'a',
+        dir: '/r/a',
+        url: 'u',
+        port: 5200,
+        running: false,
+        orphaned: false,
+      }),
+    ).toBe(5200)
   })
 })
 
@@ -125,7 +203,7 @@ describe('isAllowedName', () => {
 })
 
 describe('instanceLogSections', () => {
-  test('returns keyed launch/BE/FE sections in order with paths from logsDir/name', () => {
+  test('dual mode (default): returns launch/BE/FE sections in order', () => {
     const sections = instanceLogSections('/repo/.grove/logs', 'feat+x')
     expect(sections.map((s) => s.key)).toEqual(['up', 'be', 'fe'])
     expect(sections.map((s) => s.header)).toEqual(['launch (grove up)', 'BE', 'FE'])
@@ -133,6 +211,16 @@ describe('instanceLogSections', () => {
       '/repo/.grove/logs/feat+x-up.log',
       '/repo/.grove/logs/feat+x-be.log',
       '/repo/.grove/logs/feat+x-fe.log',
+    ])
+  })
+
+  test('single mode: returns launch/server sections in order', () => {
+    const sections = instanceLogSections('/repo/.grove/logs', 'feat+sk', 'single')
+    expect(sections.map((s) => s.key)).toEqual(['up', 'server'])
+    expect(sections.map((s) => s.header)).toEqual(['launch (grove up)', 'server'])
+    expect(sections.map((s) => s.path)).toEqual([
+      '/repo/.grove/logs/feat+sk-up.log',
+      '/repo/.grove/logs/feat+sk-server.log',
     ])
   })
 })
@@ -181,8 +269,9 @@ describe('rowStatus', () => {
 })
 
 // covers: DASH-12
-describe('apiRow', () => {
+describe('apiRow — dual', () => {
   const base = {
+    kind: 'dual' as const,
     name: 'feat+x',
     dir: '/repo/feat+x',
     url: 'http://localhost:8888',
@@ -190,10 +279,11 @@ describe('apiRow', () => {
     fePort: 8888,
   }
 
-  test('maps a row to the API DTO with a status computed from the live probe', () => {
+  test('maps a dual row to the API DTO with mode and status from the live probe', () => {
     expect(apiRow({ ...base, running: true, orphaned: false }, true)).toEqual({
       name: 'feat+x',
       url: 'http://localhost:8888',
+      mode: 'dual',
       bePort: 9999,
       fePort: 8888,
       status: 'live',
@@ -211,6 +301,33 @@ describe('apiRow', () => {
 
   test('an orphan row is orphaned', () => {
     expect(apiRow({ ...base, running: false, orphaned: true }, false).status).toBe('orphaned')
+  })
+})
+
+describe('apiRow — single', () => {
+  const base = {
+    kind: 'single' as const,
+    name: 'feat+sk',
+    dir: '/repo/feat+sk',
+    url: 'http://localhost:5200',
+    port: 5200,
+  }
+
+  test('maps a single row to the API DTO with mode=single and one port field', () => {
+    expect(apiRow({ ...base, running: true, orphaned: false }, true)).toEqual({
+      name: 'feat+sk',
+      url: 'http://localhost:5200',
+      mode: 'single',
+      port: 5200,
+      status: 'live',
+      orphaned: false,
+    })
+  })
+
+  test('does not include bePort/fePort', () => {
+    const row = apiRow({ ...base, running: true, orphaned: false }, true)
+    expect('bePort' in row).toBe(false)
+    expect('fePort' in row).toBe(false)
   })
 })
 
