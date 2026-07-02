@@ -2,48 +2,55 @@ import { useCallback, useState } from 'react'
 import { fetchLogs } from './api'
 import { usePoll } from './usePoll'
 
-// One log at a time via tabs, defaulting to BE (LOG-2). Mounted only while the
-// drawer is open, so it polls logs (~2s) only for open rows. All three panes stay
-// in the DOM (toggled by `hidden`) so each keeps its own scroll position; React
-// rewrites only the changed text node, so growing logs don't yank scroll (DASH-5).
-const TABS = [
+// One log at a time via tabs (LOG-2). Mounted only while the drawer is open, so
+// it polls logs (~2s) only for open rows. All panes stay in the DOM (toggled by
+// `hidden`) so each keeps its own scroll position; React rewrites only the changed
+// text node, so growing logs don't yank scroll (DASH-5).
+//
+// Dual mode tabs: BE (default) / FE / launch.
+// Single mode tabs: server (default) / launch.
+const DUAL_TABS = [
   { key: 'be', label: 'BE' },
   { key: 'fe', label: 'FE' },
   { key: 'up', label: 'launch' },
 ] as const
 
-type TabKey = (typeof TABS)[number]['key']
+const SINGLE_TABS = [
+  { key: 'server', label: 'server' },
+  { key: 'up', label: 'launch' },
+] as const
 
-export function LogDrawer({ name }: { name: string }) {
-  const [tab, setTab] = useState<TabKey>('be')
+type DualTabKey = (typeof DUAL_TABS)[number]['key']
+type SingleTabKey = (typeof SINGLE_TABS)[number]['key']
+type TabKey = DualTabKey | SingleTabKey
+
+export function LogDrawer({ name, mode }: { name: string; mode: 'dual' | 'single' }) {
+  const tabs = mode === 'single' ? SINGLE_TABS : DUAL_TABS
+  const [tab, setTab] = useState<TabKey>(tabs[0].key)
   const { data } = usePoll(
     useCallback(() => fetchLogs(name), [name]),
     2000,
   )
-  const logs = data ?? { up: '', be: '', fe: '' }
+  const logs = data ?? {}
   return (
     <div className="drawer">
       <div className="tabs">
-        {TABS.map((t) => (
+        {tabs.map((t) => (
           <button
             key={t.key}
             type="button"
             className={`tab${tab === t.key ? ' active' : ''}`}
-            onClick={() => setTab(t.key)}
+            onClick={() => setTab(t.key as TabKey)}
           >
             {t.label}
           </button>
         ))}
       </div>
-      <pre className="logpane" hidden={tab !== 'up'}>
-        {logs.up}
-      </pre>
-      <pre className="logpane" hidden={tab !== 'be'}>
-        {logs.be}
-      </pre>
-      <pre className="logpane" hidden={tab !== 'fe'}>
-        {logs.fe}
-      </pre>
+      {tabs.map((t) => (
+        <pre key={t.key} className="logpane" hidden={tab !== t.key}>
+          {(logs as Record<string, string | undefined>)[t.key] ?? ''}
+        </pre>
+      ))}
     </div>
   )
 }

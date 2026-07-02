@@ -16,10 +16,13 @@ import {
   dashboardActionError,
   formatPinoLog,
   instanceLogSections,
+  instancePids,
+  instancePorts,
   isActionableName,
   isAllowedName,
   isSameOrigin,
   orphanInstances,
+  probePort,
   prunedReaped,
   reapTargets,
 } from '../lib/dashboard-utils.ts'
@@ -33,6 +36,7 @@ import {
   readInstances,
   spawnDetached,
 } from '../lib/instances.ts'
+import { isSingleConfig } from '../lib/instances-utils.ts'
 import { dashboardPortFor } from '../lib/port-utils.ts'
 
 const repoRoot = mainRepoRoot()
@@ -76,7 +80,7 @@ async function apiRows(): Promise<ApiRow[]> {
   // (Relocated here from the old renderRows, which the SPA replaced — DASH-18.)
   const orphans = orphanInstances(worktreeDirs, instances)
   for (const o of reapTargets(reaped, orphans)) {
-    killByPortAndPids([o.bePort, o.fePort], [o.bePid, o.fePid])
+    killByPortAndPids(instancePorts(o), instancePids(o))
     reaped.add(o.name)
   }
   reaped = prunedReaped(reaped, orphans)
@@ -84,7 +88,7 @@ async function apiRows(): Promise<ApiRow[]> {
   // Probe each running worktree's frontend port server-side (a browser can't probe
   // arbitrary loopback ports) and fold running/live/orphaned into a single status
   // per row (DASH-12) for the client.
-  return Promise.all(rows.map(async (r) => apiRow(r, r.running && (await alive(r.fePort)))))
+  return Promise.all(rows.map(async (r) => apiRow(r, r.running && (await alive(probePort(r))))))
 }
 
 // grove's own install dir (the repo root) — this script lives in src/cli/, so it
@@ -208,17 +212,19 @@ export function serve(): void {
         if (!isActionableName(name, listWorktreeDirs(), readInstances())) {
           return new Response('unknown worktree', { status: 404 })
         }
-        // Return the three logs as separate keyed fields, never concatenated, so
-        // the row renders one independently-scrollable pane per log. Paths are
-        // built deterministically — a never-launched instance still has a launch
-        // log worth showing.
-        const sections = instanceLogSections(join(groveRoot(), 'logs'), name)
+        // Return logs as separate keyed fields, never concatenated, so the row
+        // renders one independently-scrollable pane per log. Mode is a repo-wide
+        // fact (config), not per-instance — so idle/stopped single-mode worktrees
+        // get the right sections even when no instance file exists (LOG-1a).
+        const config = await loadConfig()
+        const mode = isSingleConfig(config) ? 'single' : 'dual'
+        const sections = instanceLogSections(join(groveRoot(), 'logs'), name, mode)
         const body: Record<string, string> = {}
-        // BE is pino one-line JSON (no TTY → no pino-pretty); expand it to a
-        // human, timestamped line. launch/FE are already plain text.
+        // BE and server logs may be pino one-line JSON (no TTY → no pino-pretty);
+        // expand them to human, timestamped lines. Non-pino lines pass through.
         for (const s of sections) {
           const raw = tail(s.path)
-          body[s.key] = s.key === 'be' ? formatPinoLog(raw) : raw
+          body[s.key] = s.key === 'be' || s.key === 'server' ? formatPinoLog(raw) : raw
         }
         return Response.json(body)
       }

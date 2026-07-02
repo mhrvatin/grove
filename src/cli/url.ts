@@ -1,5 +1,5 @@
-// Print a worktree's frontend URL + up/down (no arg = current worktree). The URL
-// is derived statelessly from portsFor (URL-1), so it's the real location even
+// Print a worktree's app URL + up/down (no arg = current worktree). The URL is
+// derived statelessly from portsFor (URL-1), so it's the real location even
 // when down; a port probe sets the ` (down)` suffix and exit code (URL-2). The
 // one sanctioned way for an agent to find the running app without guessing ports.
 // Orchestration only — git/fs/process I/O lives in lib/instances.ts, pure logic
@@ -18,9 +18,11 @@ export async function run(target: string): Promise<void> {
     process.exit(1)
   }
 
-  const { fe } = portsFor(basename(dir), config)
-  // URL-2: liveness is the frontend port only — the agent wants the UI URL.
-  const { line, code } = urlStatus(fe, portsInUse([fe]).length > 0)
+  const ports = portsFor(basename(dir), config)
+  // URL-2: probe the app's single port — the server port for single mode, the
+  // frontend port for dual mode. Both are the user-facing URL for the worktree.
+  const appPort = ports.kind === 'single' ? ports.port : ports.fe
+  const { line, code } = urlStatus(appPort, portsInUse([appPort]).length > 0)
   console.log(line)
   process.exit(code)
 }

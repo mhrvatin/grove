@@ -1,4 +1,4 @@
-// Launch FE+BE for a worktree on deterministic ports (no arg = current
+// Launch the worktree's dev server(s) on deterministic ports (no arg = current
 // worktree). Detached + logged; manage from `grove start` or stop with
 // `grove down`. Orchestration only — git/fs/process I/O lives in lib/instances.ts,
 // pure logic in lib/instances-utils.ts, all project facts in grove.config.jsonc.
@@ -10,13 +10,15 @@ import {
   groveRoot,
   listWorktreeDirs,
   loadConfig,
+  makeDualInstance,
+  makeSingleInstance,
   portsInUse,
   runPrestart,
   spawnDetached,
   waitForPort,
   writeInstance,
 } from '../lib/instances.ts'
-import { makeInstance, resolveEnv, resolveWorktreeDir } from '../lib/instances-utils.ts'
+import { isSingleConfig, resolveEnv, resolveWorktreeDir } from '../lib/instances-utils.ts'
 import { portsFor } from '../lib/port-utils.ts'
 
 export async function run(target: string): Promise<void> {
@@ -34,49 +36,68 @@ export async function run(target: string): Promise<void> {
   ensureEnvFile(dir, config.envFile)
 
   const ports = portsFor(name, config)
-  const busy = portsInUse([ports.be, ports.fe])
-  if (busy.length > 0) {
-    console.error(
-      `Port ${busy[0]} already in use — is '${name}' already up? Stop it (grove down ${name}), or rename the branch if this is a hash collision.`,
-    )
-    process.exit(1)
+
+  if (isSingleConfig(config)) {
+    // Single-process mode (SvelteKit, Next.js, etc.): one server per worktree.
+    if (ports.kind !== 'single') throw new Error('unreachable')
+    const { port } = ports
+    const busy = portsInUse([port])
+    if (busy.length > 0) {
+      console.error(
+        `Port ${busy[0]} already in use — is '${name}' already up? Stop it (grove down ${name}), or rename the branch if this is a hash collision.`,
+      )
+      process.exit(1)
+    }
+    // ponytail: shared DB across all instances; the additive-only migration rule
+    // makes divergent-schema branches safe in practice. Per-worktree DB later if not.
+    if (config.prestart) runPrestart(dir, config.prestart)
+    const serverLog = join(root, 'logs', `${name}-server.log`)
+    spawnDetached(config.server.cmd, {
+      cwd: dir,
+      env: resolveEnv(config.server.env, ports),
+      logFile: serverLog,
+    })
+    const pid = waitForPort(port)
+    const inst = makeSingleInstance({ name, dir, port, pid, log: serverLog })
+    writeInstance(inst)
+    if (pid === 0) {
+      console.error(`⚠ ${name}: server did not bind within 30s — check logs: ${serverLog}`)
+    }
+    console.log(`▶ ${name} up at ${inst.url} — logs: ${serverLog}`)
+  } else {
+    // Dual-process mode: separate backend and frontend per worktree.
+    if (ports.kind !== 'dual') throw new Error('unreachable')
+    const { be, fe } = ports
+    const busy = portsInUse([be, fe])
+    if (busy.length > 0) {
+      console.error(
+        `Port ${busy[0]} already in use — is '${name}' already up? Stop it (grove down ${name}), or rename the branch if this is a hash collision.`,
+      )
+      process.exit(1)
+    }
+    // ponytail: shared DB across all instances; the additive-only migration rule
+    // makes divergent-schema branches safe in practice. Per-worktree DB later if not.
+    if (config.prestart) runPrestart(dir, config.prestart)
+    const beLog = join(root, 'logs', `${name}-be.log`)
+    const feLog = join(root, 'logs', `${name}-fe.log`)
+    // bun auto-loads the worktree's env file from its cwd.
+    spawnDetached(config.backend.cmd, {
+      cwd: dir,
+      env: resolveEnv(config.backend.env, ports),
+      logFile: beLog,
+    })
+    spawnDetached(config.frontend.cmd, {
+      cwd: dir,
+      env: resolveEnv(config.frontend.env, ports),
+      logFile: feLog,
+    })
+    const bePid = waitForPort(be)
+    const fePid = waitForPort(fe)
+    const inst = makeDualInstance({ name, dir, bePort: be, fePort: fe, bePid, fePid, beLog, feLog })
+    writeInstance(inst)
+    if (bePid === 0 || fePid === 0) {
+      console.error(`⚠ ${name}: a server did not bind within 30s — check logs: ${beLog} / ${feLog}`)
+    }
+    console.log(`▶ ${name} up at ${inst.url} (api :${be}) — logs: ${beLog}`)
   }
-
-  const beLog = join(root, 'logs', `${name}-be.log`)
-  const feLog = join(root, 'logs', `${name}-fe.log`)
-
-  // ponytail: shared DB across all instances; the additive-only migration rule
-  // makes divergent-schema branches safe in practice. Per-worktree DB later if not.
-  if (config.prestart) runPrestart(dir, config.prestart)
-
-  // bun auto-loads the worktree's env file from its cwd.
-  spawnDetached(config.backend.cmd, {
-    cwd: dir,
-    env: resolveEnv(config.backend.env, ports),
-    logFile: beLog,
-  })
-  spawnDetached(config.frontend.cmd, {
-    cwd: dir,
-    env: resolveEnv(config.frontend.env, ports),
-    logFile: feLog,
-  })
-
-  const bePid = waitForPort(ports.be)
-  const fePid = waitForPort(ports.fe)
-  const inst = makeInstance({
-    name,
-    dir,
-    bePort: ports.be,
-    fePort: ports.fe,
-    bePid,
-    fePid,
-    beLog,
-    feLog,
-  })
-  writeInstance(inst)
-
-  if (bePid === 0 || fePid === 0) {
-    console.error(`⚠ ${name}: a server did not bind within 30s — check logs: ${beLog} / ${feLog}`)
-  }
-  console.log(`▶ ${name} up at ${inst.url} (api :${ports.be}) — logs: ${beLog}`)
 }

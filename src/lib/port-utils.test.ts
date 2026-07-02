@@ -3,42 +3,87 @@ import type { GroveConfig } from './instances-utils.ts'
 import { dashboardPortFor, portsFor, urlStatus } from './port-utils.ts'
 
 const slot = (portBase: number) => ({ portBase, cmd: [], env: {} })
-const config: GroveConfig = {
+const dualConfig: GroveConfig = {
   envFile: '.env.local',
   backend: slot(8080),
   frontend: slot(5173),
 }
+const singleConfig: GroveConfig = {
+  envFile: '.env.local',
+  server: slot(5173),
+}
 
-describe('portsFor', () => {
+describe('portsFor — dual mode', () => {
   test('is deterministic for the same name', () => {
-    expect(portsFor('feat+foo', config)).toEqual(portsFor('feat+foo', config))
+    expect(portsFor('feat+foo', dualConfig)).toEqual(portsFor('feat+foo', dualConfig))
+  })
+
+  test('returns kind=dual', () => {
+    expect(portsFor('main', dualConfig).kind).toBe('dual')
   })
 
   test('be and fe share the same offset', () => {
-    const { be, fe } = portsFor('feat+foo', config)
-    expect(be - 8080).toBe(fe - 5173)
+    const ports = portsFor('feat+foo', dualConfig)
+    if (ports.kind !== 'dual') throw new Error('expected dual')
+    expect(ports.be - 8080).toBe(ports.fe - 5173)
   })
 
   test('stays within the reserved ranges (portBase + 0..99)', () => {
     for (const name of ['main', 'feat+foo', 'feat+dev-up-combined', 'x', '']) {
-      const { be, fe } = portsFor(name, config)
-      expect(be).toBeGreaterThanOrEqual(8080)
-      expect(be).toBeLessThanOrEqual(8179)
-      expect(fe).toBeGreaterThanOrEqual(5173)
-      expect(fe).toBeLessThanOrEqual(5272)
+      const ports = portsFor(name, dualConfig)
+      if (ports.kind !== 'dual') throw new Error('expected dual')
+      expect(ports.be).toBeGreaterThanOrEqual(8080)
+      expect(ports.be).toBeLessThanOrEqual(8179)
+      expect(ports.fe).toBeGreaterThanOrEqual(5173)
+      expect(ports.fe).toBeLessThanOrEqual(5272)
     }
   })
 
   test('honors the config portBase for each slot', () => {
-    const shifted: GroveConfig = { ...config, backend: slot(9000), frontend: slot(6000) }
-    const { be, fe } = portsFor('main', shifted)
-    const base = portsFor('main', config)
-    expect(be).toBe(9000 + (base.be - 8080))
-    expect(fe).toBe(6000 + (base.fe - 5173))
+    const shifted: GroveConfig = { ...dualConfig, backend: slot(9000), frontend: slot(6000) }
+    const ports = portsFor('main', shifted)
+    const base = portsFor('main', dualConfig)
+    if (ports.kind !== 'dual' || base.kind !== 'dual') throw new Error('expected dual')
+    expect(ports.be).toBe(9000 + (base.be - 8080))
+    expect(ports.fe).toBe(6000 + (base.fe - 5173))
   })
 
   test('different names usually differ', () => {
-    expect(portsFor('main', config)).not.toEqual(portsFor('feat+dev-up-combined', config))
+    expect(portsFor('main', dualConfig)).not.toEqual(portsFor('feat+dev-up-combined', dualConfig))
+  })
+})
+
+describe('portsFor — single mode', () => {
+  test('returns kind=single with one port', () => {
+    const ports = portsFor('main', singleConfig)
+    expect(ports.kind).toBe('single')
+  })
+
+  test('is deterministic for the same name', () => {
+    expect(portsFor('feat+foo', singleConfig)).toEqual(portsFor('feat+foo', singleConfig))
+  })
+
+  test('stays within the reserved range (portBase + 0..99)', () => {
+    for (const name of ['main', 'feat+foo', 'x', '']) {
+      const ports = portsFor(name, singleConfig)
+      if (ports.kind !== 'single') throw new Error('expected single')
+      expect(ports.port).toBeGreaterThanOrEqual(5173)
+      expect(ports.port).toBeLessThanOrEqual(5272)
+    }
+  })
+
+  test('uses the same hash offset as dual mode for the same name', () => {
+    const dual = portsFor('main', dualConfig)
+    const single = portsFor('main', singleConfig)
+    if (dual.kind !== 'dual' || single.kind !== 'single') throw new Error('wrong kinds')
+    // Both portBases are 5173 in these configs, so ports must be identical
+    expect(single.port - 5173).toBe(dual.fe - 5173)
+  })
+
+  test('different names usually differ', () => {
+    expect(portsFor('main', singleConfig)).not.toEqual(
+      portsFor('feat+dev-up-combined', singleConfig),
+    )
   })
 })
 
@@ -65,13 +110,10 @@ describe('dashboardPortFor', () => {
 
 // covers: URL-1, URL-2
 describe('urlStatus', () => {
-  // live → bare URL, exit 0
   test('live: bare URL and exit 0', () => {
     expect(urlStatus(5269, true)).toEqual({ line: 'http://localhost:5269', code: 0 })
   })
 
-  // down → URL with ` (down)` suffix, exit non-zero. The URL is still the
-  // real deterministic location (URL-1), useful even when nothing is listening.
   test('down: URL with (down) suffix and non-zero exit', () => {
     expect(urlStatus(5269, false)).toEqual({ line: 'http://localhost:5269 (down)', code: 1 })
   })

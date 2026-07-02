@@ -9,18 +9,32 @@ import { portsFor } from './port-utils.ts'
 
 export type { Instance }
 
-export type Row = {
+// Internal row — one per worktree (or orphan tombstone). Discriminated on `kind`
+// so port access is always type-safe without casts.
+export type DualRow = {
+  kind: 'dual'
   name: string
   dir: string
   url: string
   bePort: number
   fePort: number
   running: boolean
-  // An orphan tombstone: an instance file whose worktree was removed (DASH-15).
   orphaned: boolean
 }
 
-export type LogSection = { key: 'up' | 'be' | 'fe'; header: string; path: string }
+export type SingleRow = {
+  kind: 'single'
+  name: string
+  dir: string
+  url: string
+  port: number
+  running: boolean
+  orphaned: boolean
+}
+
+export type Row = DualRow | SingleRow
+
+export type LogSection = { key: 'up' | 'be' | 'fe' | 'server'; header: string; path: string }
 
 export function basename(p: string): string {
   return p.split('/').filter(Boolean).pop() ?? p
@@ -77,15 +91,43 @@ export function isSameOrigin(origin: string | null, port: number): boolean {
   return origin === null || origin === `http://localhost:${port}`
 }
 
-// Ordered, keyed log sections shown for an instance: the launch log (`grove up`'s
-// own stdout/stderr, so failed starts are inspectable), then BE and FE. The keys
-// match the /api/logs/<name> JSON fields so each log renders in its own pane.
-export function instanceLogSections(logsDir: string, name: string): LogSection[] {
+// Ordered, keyed log sections for an instance. Dual mode: launch + BE + FE.
+// Single mode: launch + server. The keys match /api/logs/<name> JSON fields.
+export function instanceLogSections(
+  logsDir: string,
+  name: string,
+  mode: 'dual' | 'single' = 'dual',
+): LogSection[] {
+  const up: LogSection = {
+    key: 'up',
+    header: 'launch (grove up)',
+    path: join(logsDir, `${name}-up.log`),
+  }
+  if (mode === 'single') {
+    return [up, { key: 'server', header: 'server', path: join(logsDir, `${name}-server.log`) }]
+  }
   return [
-    { key: 'up', header: 'launch (grove up)', path: join(logsDir, `${name}-up.log`) },
+    up,
     { key: 'be', header: 'BE', path: join(logsDir, `${name}-be.log`) },
     { key: 'fe', header: 'FE', path: join(logsDir, `${name}-fe.log`) },
   ]
+}
+
+// Port(s) to kill when stopping an instance (fed to killByPortAndPids).
+export function instancePorts(inst: Instance): number[] {
+  return inst.kind === 'single' ? [inst.port] : [inst.bePort, inst.fePort]
+}
+
+// Pid(s) to kill when stopping an instance (fed to killByPortAndPids).
+export function instancePids(inst: Instance): number[] {
+  return inst.kind === 'single' ? [inst.pid] : [inst.bePid, inst.fePid]
+}
+
+// The port to probe for liveness: the frontend port for dual mode, the server
+// port for single mode (a browser can't probe arbitrary loopback ports, so the
+// dashboard probes server-side and folds the result into ApiRow.status).
+export function probePort(row: Row): number {
+  return row.kind === 'single' ? row.port : row.fePort
 }
 
 const PINO_LEVELS: Record<number, string> = {
@@ -101,10 +143,10 @@ function pad(n: number, len = 2): string {
   return String(n).padStart(len, '0')
 }
 
-// Pino emits one-line JSON (not pino-pretty) when the BE stdout is piped to a
-// file, so the dashboard sees `{"time":<epoch-ms>,...}` with no human stamp.
-// Render each pino line as `HH:mm:ss.SSS LEVEL msg key=val` in local time.
-// Non-pino lines (vite/bun banners, stack traces, plain text) pass through.
+// Pino emits one-line JSON (not pino-pretty) when stdout is piped to a file, so
+// the dashboard sees `{"time":<epoch-ms>,...}` with no human stamp. Render each
+// pino line as `HH:mm:ss.SSS LEVEL msg key=val` in local time. Non-pino lines
+// (vite/bun banners, stack traces, plain text) pass through unchanged.
 function formatPinoLine(line: string): string {
   if (!line.startsWith('{')) return line
   let o: Record<string, unknown>
@@ -149,15 +191,18 @@ export function rowStatus(running: boolean, live: boolean, orphaned = false): Ro
   return live ? 'live' : 'failed'
 }
 
-// The per-row DTO the dashboard SPA polls from GET /api/rows. The server folds the
-// liveness probe (a browser can't probe arbitrary loopback ports) into a computed
-// `status` so the client never sees the raw running/live split. Shape is mirrored
+// The per-row DTO the dashboard SPA polls from GET /api/rows. `mode` tells the
+// client which port fields to render and which log tabs to show. Shape is mirrored
 // — not imported — by web/types.ts, to keep node:path out of the browser bundle.
 export type ApiRow = {
   name: string
   url: string
-  bePort: number
-  fePort: number
+  mode: 'dual' | 'single'
+  // Populated in dual mode:
+  bePort?: number
+  fePort?: number
+  // Populated in single mode:
+  port?: number
   status: RowStatus
   orphaned: boolean
 }
@@ -166,14 +211,17 @@ export type ApiRow = {
 // port-probe outcome (server-side only); status collapses running/live/orphaned
 // via rowStatus (DASH-12).
 export function apiRow(row: Row, live: boolean): ApiRow {
-  return {
+  const base = {
     name: row.name,
     url: row.url,
-    bePort: row.bePort,
-    fePort: row.fePort,
+    mode: row.kind,
     status: rowStatus(row.running, live, row.orphaned),
     orphaned: row.orphaned,
   }
+  if (row.kind === 'single') {
+    return { ...base, port: row.port }
+  }
+  return { ...base, bePort: row.bePort, fePort: row.fePort }
 }
 
 export function buildRows(
@@ -186,7 +234,19 @@ export function buildRows(
     const name = basename(dir)
     const inst = byName.get(name)
     if (inst) {
+      if (inst.kind === 'single') {
+        return {
+          kind: 'single' as const,
+          name,
+          dir,
+          url: inst.url,
+          port: inst.port,
+          running: true,
+          orphaned: false,
+        }
+      }
       return {
+        kind: 'dual' as const,
         name,
         dir,
         url: inst.url,
@@ -196,26 +256,52 @@ export function buildRows(
         orphaned: false,
       }
     }
-    const { be, fe } = portsFor(name, config)
+    const ports = portsFor(name, config)
+    if (ports.kind === 'single') {
+      return {
+        kind: 'single' as const,
+        name,
+        dir,
+        url: `http://localhost:${ports.port}`,
+        port: ports.port,
+        running: false,
+        orphaned: false,
+      }
+    }
     return {
+      kind: 'dual' as const,
       name,
       dir,
-      url: `http://localhost:${fe}`,
-      bePort: be,
-      fePort: fe,
+      url: `http://localhost:${ports.fe}`,
+      bePort: ports.be,
+      fePort: ports.fe,
       running: false,
       orphaned: false,
     }
   })
   // Tombstone rows for instances whose worktree is gone (DASH-15).
-  const orphanRows = orphanInstances(worktreeDirs, instances).map((i) => ({
-    name: i.name,
-    dir: i.dir,
-    url: i.url,
-    bePort: i.bePort,
-    fePort: i.fePort,
-    running: false,
-    orphaned: true,
-  }))
+  const orphanRows = orphanInstances(worktreeDirs, instances).map((i) => {
+    if (i.kind === 'single') {
+      return {
+        kind: 'single' as const,
+        name: i.name,
+        dir: i.dir,
+        url: i.url,
+        port: i.port,
+        running: false,
+        orphaned: true,
+      }
+    }
+    return {
+      kind: 'dual' as const,
+      name: i.name,
+      dir: i.dir,
+      url: i.url,
+      bePort: i.bePort,
+      fePort: i.fePort,
+      running: false,
+      orphaned: true,
+    }
+  })
   return [...worktreeRows, ...orphanRows]
 }

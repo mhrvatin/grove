@@ -14,10 +14,16 @@ import {
 } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { pathToFileURL } from 'node:url'
-import { type GroveConfig, type GroveSlot, type Instance, makeInstance } from './instances-utils.ts'
+import {
+  type GroveConfig,
+  type GroveSlot,
+  type Instance,
+  makeDualInstance,
+  makeSingleInstance,
+} from './instances-utils.ts'
 
 export type { GroveConfig, Instance }
-export { makeInstance }
+export { makeDualInstance, makeSingleInstance }
 
 function decode(bytes: Uint8Array): string {
   return new TextDecoder().decode(bytes)
@@ -56,14 +62,40 @@ export async function loadConfig(): Promise<GroveConfig> {
   return configCache
 }
 
-// JSON has no compile-time `satisfies` check, so validate the loaded shape:
-// both slots present with the { portBase, cmd, env } trio and a string envFile.
+// JSON has no compile-time `satisfies` check, so validate the loaded shape.
+// Accepts either a dual config (backend + frontend slots) or a single-process
+// config (server slot). Fails loudly on any other shape.
 function assertConfig(c: GroveConfig, path: string): GroveConfig {
-  const slotOk = (s: GroveSlot | undefined): boolean =>
-    !!s && typeof s.portBase === 'number' && Array.isArray(s.cmd) && typeof s.env === 'object'
-  if (typeof c?.envFile !== 'string' || !slotOk(c?.backend) || !slotOk(c?.frontend)) {
+  const slotOk = (s: unknown): boolean => {
+    const slot = s as GroveSlot | undefined
+    return (
+      !!slot &&
+      typeof slot.portBase === 'number' &&
+      Array.isArray(slot.cmd) &&
+      typeof slot.env === 'object'
+    )
+  }
+  const raw = c as Record<string, unknown>
+  if (typeof raw['envFile'] !== 'string') {
+    console.error(`Malformed grove config (${path}): need envFile`)
+    process.exit(1)
+  }
+  if ('server' in raw) {
+    if (!slotOk(raw['server'])) {
+      console.error(`Malformed grove config (${path}): "server" must have {portBase,cmd,env}`)
+      process.exit(1)
+    }
+    if ('backend' in raw || 'frontend' in raw) {
+      console.error(
+        `Malformed grove config (${path}): "server" is mutually exclusive with "backend"/"frontend"`,
+      )
+      process.exit(1)
+    }
+    return c
+  }
+  if (!slotOk(raw['backend']) || !slotOk(raw['frontend'])) {
     console.error(
-      `Malformed grove config (${path}): need envFile + backend/frontend {portBase,cmd,env}`,
+      `Malformed grove config (${path}): need backend/frontend {portBase,cmd,env}, or use "server" for single-process mode`,
     )
     process.exit(1)
   }
@@ -87,9 +119,13 @@ function instancesDir(): string {
 
 // A corrupt/partially-written instance file must not crash the dashboard: parse
 // defensively and skip anything unreadable rather than throwing mid-render.
+// Backward compat: old instance files (pre single-slot) lack a `kind` field —
+// default them to 'dual' so existing .grove/ state keeps working without migration.
 function parseInstanceFile(path: string): Instance | null {
   try {
-    return JSON.parse(readFileSync(path, 'utf8')) as Instance
+    const parsed = JSON.parse(readFileSync(path, 'utf8')) as Record<string, unknown>
+    if (!parsed['kind']) parsed['kind'] = 'dual'
+    return parsed as Instance
   } catch {
     console.warn(`skipping unreadable instance file: ${path}`)
     return null

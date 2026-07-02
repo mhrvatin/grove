@@ -1,11 +1,12 @@
 // Deterministic dev ports from a worktree name, so every worktree always maps
-// to the same FE/BE URL and the dashboard can discover instances without state.
+// to the same URL and the dashboard can discover instances without state.
 // Both slots share the same offset, so they move together. portBase per slot
 // comes from grove.config.jsonc.
 // ponytail: 1-in-100 chance two worktrees hash to the same offset; grove-up
 // surfaces the resulting port-in-use error rather than silently bumping (keeps
 // ports stable). Rename the branch if it ever collides.
 import type { GroveConfig, Ports } from './instances-utils.ts'
+import { isSingleConfig } from './instances-utils.ts'
 
 const SPAN = 100
 const DASHBOARD_PORT_BASE = 4000
@@ -19,9 +20,19 @@ function hashOffset(s: string, span: number): number {
   return ((hash % span) + span) % span
 }
 
+// Returns a discriminated Ports object: { kind: 'dual', be, fe } for two-slot
+// configs, { kind: 'single', port } for single-process configs. The offset hash
+// is identical in both modes so the same worktree always maps to the same port(s).
 export function portsFor(name: string, config: GroveConfig): Ports {
   const offset = hashOffset(name, SPAN)
-  return { be: config.backend.portBase + offset, fe: config.frontend.portBase + offset }
+  if (isSingleConfig(config)) {
+    return { kind: 'single', port: config.server.portBase + offset }
+  }
+  return {
+    kind: 'dual',
+    be: config.backend.portBase + offset,
+    fe: config.frontend.portBase + offset,
+  }
 }
 
 // Deterministic dashboard port per repo (PORT-5), so concurrent repos each get
@@ -32,10 +43,10 @@ export function dashboardPortFor(repoRoot: string): number {
   return DASHBOARD_PORT_BASE + hashOffset(repoRoot, DASHBOARD_PORT_SPAN)
 }
 
-// The grove-url output line + exit code for a frontend port (URL-2). The URL is
+// The grove-url output line + exit code for the app's port (URL-2). The URL is
 // always the real deterministic location (URL-1); liveness only adds a suffix and
 // flips the exit code, so a caller can branch on up/down without parsing.
-export function urlStatus(fePort: number, live: boolean): { line: string; code: number } {
-  const url = `http://localhost:${fePort}`
+export function urlStatus(appPort: number, live: boolean): { line: string; code: number } {
+  const url = `http://localhost:${appPort}`
   return live ? { line: url, code: 0 } : { line: `${url} (down)`, code: 1 }
 }
