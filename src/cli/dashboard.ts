@@ -47,15 +47,6 @@ const repoName = basename(repoRoot)
 // still orphans (prunedReaped), so it bounds reaping to once per orphan episode.
 let reaped = new Set<string>()
 
-async function alive(port: number): Promise<boolean> {
-  try {
-    await fetch(`http://localhost:${port}`, { signal: AbortSignal.timeout(400) })
-    return true
-  } catch {
-    return false
-  }
-}
-
 function tail(file: string, lines = 200): string {
   if (!existsSync(file)) return '(no log)'
   return readFileSync(file, 'utf8').split('\n').slice(-lines).join('\n')
@@ -87,8 +78,11 @@ async function apiRows(): Promise<ApiRow[]> {
   const rows = buildRows(worktreeDirs, instances, config)
   // Probe each running worktree's frontend port server-side (a browser can't probe
   // arbitrary loopback ports) and fold running/live/orphaned into a single status
-  // per row (DASH-12) for the client.
-  return Promise.all(rows.map(async (r) => apiRow(r, r.running && (await alive(probePort(r))))))
+  // per row (DASH-12) for the client. portsInUse shells out to lsof per port, so this
+  // blocks the event loop briefly per row — acceptable for a single-dev localhost tool
+  // with a handful of worktrees (ponytail: trades poll concurrency for reusing the same
+  // port-probe semantics as grove url/up/down, rather than adding a second definition).
+  return rows.map((r) => apiRow(r, r.running && portsInUse([probePort(r)]).length > 0))
 }
 
 // grove's own install dir (the repo root) — this script lives in src/cli/, so it
