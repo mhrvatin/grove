@@ -2,6 +2,11 @@ pre-commit:
   parallel: true
   commands:
     lint:
+      # priority: 1 so this finishes (and stages its fixes) before dist-bundle's
+      # priority: 2 build reads files off disk — otherwise lefthook's `parallel: true`
+      # lets them race, and dist-bundle can build from pre-format content or collide
+      # with lint's own `git add` on .git/index.lock.
+      priority: 1
       run: bun run biome check --write --no-errors-on-unmatched --staged .
       stage_fixed: true
     no-secrets:
@@ -12,6 +17,21 @@ pre-commit:
       run: bash .claude/hooks/no-node-modules-commit.sh
     no-main-commit:
       run: bash .claude/hooks/no-main-commit.sh
+    dist-bundle:
+      # grove ships a prebuilt dist/ (DASH-20) — rebuild it here (after lint's
+      # formatting pass, so the build reads final file contents) whenever a
+      # commit touches a file that affects the SPA bundle, and fold the result
+      # into the same commit so dist/ never lags source.
+      priority: 2
+      glob: '{src/web/**,index.html,vite.config.ts,tsconfig.app.json}'
+      run: |
+        if [ -n "$(git diff --name-only -- src/web index.html vite.config.ts tsconfig.app.json)" ]; then
+          echo "ERROR: unstaged changes in files that affect the dist/ bundle."
+          echo "Stage or stash them first — otherwise the rebuilt dist/ would embed uncommitted content."
+          git diff --name-only -- src/web index.html vite.config.ts tsconfig.app.json
+          exit 1
+        fi
+        bun run build:bundle && git add dist
 
 pre-push:
   parallel: false
