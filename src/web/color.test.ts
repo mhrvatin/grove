@@ -18,6 +18,15 @@ describe('hueFor', () => {
   test('different names usually differ', () => {
     expect(hueFor('grove')).not.toBe(hueFor('facit'))
   })
+
+  test('similar-length names spread out instead of clustering', () => {
+    // Regression: the naive hash*31 % 360 hash gave 31 a multiplicative order of
+    // only 6 mod 360, landing "logga" and "facit" within a few degrees of each
+    // other. Hue is circular, so compare the shorter arc between the two hues.
+    const d = Math.abs(hueFor('logga') - hueFor('facit'))
+    const circularDistance = Math.min(d, 360 - d)
+    expect(circularDistance).toBeGreaterThan(10)
+  })
 })
 
 describe('gradientColorFor', () => {

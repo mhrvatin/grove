@@ -22,6 +22,7 @@ export function App() {
     fetchMeta()
       .then((meta) => {
         setRepoName(meta.repoName)
+        document.title = `Grove - ${meta.repoName}`
         document.documentElement.style.setProperty(
           '--gradient-color',
           gradientColorFor(meta.repoName),
