@@ -4,9 +4,7 @@ import type { Action } from './api'
 import { Icon } from './Icon'
 import { LogDrawer } from './LogDrawer'
 import { StatusDot } from './StatusDot'
-import type { ApiRow, RowStatus } from './types'
-
-export type EffectiveStatus = RowStatus | 'starting'
+import type { ApiRow, EffectiveStatus } from './types'
 
 type Props = {
   row: ApiRow
@@ -17,12 +15,17 @@ type Props = {
   // reads "start failed" vs a server-side crash's "failed".
   clientFailed: boolean
   pending: boolean
+  // The down/clear overlay (DASH-21): disables actions while the POST is in flight,
+  // and — if it comes back non-2xx — flags the phase until the row is retried.
+  stopPending: boolean
+  stopFailed: boolean
   onAction: (action: Action, name: string) => void
 }
 
-function phaseFor(
+export function phaseFor(
   status: EffectiveStatus,
   clientFailed: boolean,
+  stopFailed: boolean,
 ): { cls: string; text: string } | null {
   if (status === 'starting') return { cls: 'starting', text: 'starting…' }
   if (status === 'failed') {
@@ -31,20 +34,34 @@ function phaseFor(
       text: clientFailed ? 'start failed · open launch log' : 'failed · open launch log',
     }
   }
+  if (stopFailed) {
+    return {
+      cls: 'failed',
+      text: status === 'orphaned' ? 'clear failed · try again' : 'stop failed · try again',
+    }
+  }
   if (status === 'orphaned') return { cls: 'orphaned', text: 'worktree removed · server stopped' }
   return null
 }
 
-export function WorktreeRow({ row, effectiveStatus, clientFailed, pending, onAction }: Props) {
+export function WorktreeRow({
+  row,
+  effectiveStatus,
+  clientFailed,
+  pending,
+  stopPending,
+  stopFailed,
+  onAction,
+}: Props) {
   const [logsOpen, setLogsOpen] = useState(false)
-  const phase = phaseFor(effectiveStatus, clientFailed)
+  const phase = phaseFor(effectiveStatus, clientFailed, stopFailed)
   // Strip the scheme for display — localhost:5173 reads cleaner; the href stays whole.
   const host = row.url.replace(/^https?:\/\//, '')
   return (
     <>
       <tr className={`wt ${effectiveStatus}`} data-wt={row.name}>
         <td className="col-status">
-          <StatusDot />
+          <StatusDot status={effectiveStatus} />
         </td>
         <td>
           <div className="name">{row.name}</div>
@@ -73,7 +90,7 @@ export function WorktreeRow({ row, effectiveStatus, clientFailed, pending, onAct
         <td className="col-actions">
           <ActionButtons
             status={row.status}
-            disabled={pending}
+            disabled={pending || stopPending}
             logsOpen={logsOpen}
             onAction={(action) => onAction(action, row.name)}
             onToggleLogs={() => setLogsOpen((o) => !o)}

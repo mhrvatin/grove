@@ -4,6 +4,9 @@
 
 export type RowStatus = 'live' | 'failed' | 'idle' | 'orphaned'
 
+// The client-side overlay (DASH-11) adds a 'starting' phase RowStatus never reports.
+export type EffectiveStatus = RowStatus | 'starting'
+
 export type ApiRow = {
   name: string
   url: string
