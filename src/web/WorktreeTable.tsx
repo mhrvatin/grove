@@ -1,13 +1,15 @@
 import type { Action } from './api'
 import { Icon } from './Icon'
-import type { ApiRow } from './types'
-import { type EffectiveStatus, WorktreeRow } from './WorktreeRow'
+import type { ApiRow, EffectiveStatus } from './types'
+import { WorktreeRow } from './WorktreeRow'
 
 type Props = {
   rows: ApiRow[] | undefined
   effectiveStatus: (row: ApiRow) => EffectiveStatus
   isPending: (name: string) => boolean
   isClientFailed: (name: string) => boolean
+  isStopPending: (name: string) => boolean
+  isStopFailed: (name: string) => boolean
   onAction: (action: Action, name: string) => void
 }
 
@@ -16,6 +18,8 @@ export function WorktreeTable({
   effectiveStatus,
   isPending,
   isClientFailed,
+  isStopPending,
+  isStopFailed,
   onAction,
 }: Props) {
   return (
@@ -52,6 +56,8 @@ export function WorktreeTable({
                 effectiveStatus={effectiveStatus(row)}
                 clientFailed={isClientFailed(row.name)}
                 pending={isPending(row.name)}
+                stopPending={isStopPending(row.name)}
+                stopFailed={isStopFailed(row.name)}
                 onAction={onAction}
               />
             ))

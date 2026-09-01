@@ -101,6 +101,7 @@ tr.logrow td{padding:0;background:var(--surface)}
 .empty code{font-family:var(--mono);background:var(--surface-2);padding:.1rem .4rem;border-radius:4px;color:var(--primary)}
 footer{margin-top:1rem;font-size:.74rem;color:var(--muted);display:flex;align-items:center;gap:.5rem;font-family:var(--mono)}
 .live-pip{width:.4rem;height:.4rem;border-radius:50%;background:var(--leaf);box-shadow:0 0 0 3px var(--leaf-glow)}
+.live-pip.stale{background:var(--danger);box-shadow:0 0 0 3px var(--danger-soft)}
 @media (max-width:680px){
   header{flex-direction:column;align-items:flex-start;gap:.85rem}
   .summary{gap:1.1rem}
