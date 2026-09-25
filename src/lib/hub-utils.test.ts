@@ -70,6 +70,13 @@ describe('hubResponse — /<repoName>', () => {
 
 // covers: HUB-5
 describe('hubResponse — escaping', () => {
+  test('sends nosniff and a CSP that blocks scripts on every HTML page', () => {
+    for (const res of [hubResponse('/', [facit]), hubResponse('/nope', [facit])]) {
+      expect(res.headers['x-content-type-options']).toBe('nosniff')
+      expect(res.headers['content-security-policy']).toContain("default-src 'none'")
+    }
+  })
+
   test('escapes HTML from probed metadata and the request path', () => {
     const evil: Dashboard = { port: 4001, repoName: '<script>x</script>', repoRoot: '/a"b' }
     const index = hubResponse('/', [evil]).body

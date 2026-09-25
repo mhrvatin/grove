@@ -44,7 +44,14 @@ export function toDashboard(port: number, meta: unknown): Dashboard | null {
   return { port, repoName, repoRoot }
 }
 
-const HTML = { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' }
+// The CSP is a backstop in case a future field skips esc(): the page needs only
+// inline styles, so scripts, frames and every other load are blocked.
+const HTML = {
+  'content-type': 'text/html; charset=utf-8',
+  'cache-control': 'no-store',
+  'x-content-type-options': 'nosniff',
+  'content-security-policy': "default-src 'none'; style-src 'unsafe-inline'",
+}
 
 const STYLE =
   'body{font:15px/1.5 system-ui,sans-serif;max-width:40rem;margin:3rem auto;padding:0 1rem}' +
