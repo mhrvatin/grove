@@ -25,7 +25,7 @@ export type ApiRow = {
 // dual mode → { up, be, fe }; single mode → { up, server }.
 export type Logs = { up: string; be?: string; fe?: string; server?: string }
 
-// GET /api/meta (DASH-19) — the repo this dashboard instance is serving, since
+// GET /api/meta (DASH-19a) — the repo this dashboard instance is serving, since
 // the built SPA in dist/ is shared across all repos and only the running server
-// process knows which one it is.
-export type Meta = { repoName: string }
+// process knows which one it is. repoRoot also lets the grove hub identify it.
+export type Meta = { repoName: string; repoRoot: string }

@@ -1,6 +1,6 @@
-# CLAUDE.md
+# AGENTS.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+This file provides guidance to coding agents working with code in this repository.
 
 ## What grove is
 
@@ -24,15 +24,16 @@ CLI entrypoints (single `grove` binary declared in `package.json` `bin`, run wit
 - `grove up [target]` — launch FE+BE for a worktree (no arg = current)
 - `grove down [target | --all]` — stop instances
 - `grove url [target]` — print FE URL; exits non-zero + ` (down)` suffix when nothing's listening
-- `grove start` — start the dashboard (idempotent; serves the prebuilt SPA from `dist/`, DASH-20)
-- `grove stop` — stop the dashboard
-- `grove serve` — internal re-launch arg (used by `grove start`; not in `--help`). `target` = current worktree when empty, else first worktree whose path contains the substring.
+- `grove start` — start the dashboard (idempotent; serves the prebuilt SPA from `dist/`, DASH-20), then ensure the hub is running
+- `grove stop` — stop the dashboard (leaves the hub running)
+- `grove hub start` / `grove hub stop` — start or stop the hub on `localhost:5050` (`$GROVE_HUB_PORT` overrides)
+- `grove serve` / `grove serve-hub` — internal re-launch args (used by `grove start` / `grove hub start`; not in `--help`). `target` = current worktree when empty, else first worktree whose path contains the substring.
 
 ## Layout
 
 Everything lives under `src/`, split three ways:
 
-- `src/cli/` — `grove.ts` (the single `grove` binary entry), plus `up.ts`, `down.ts`, `url.ts`, `dashboard.ts` (each exports a `run()`/`start()`/`stop()`/`serve()` function called by `grove.ts`). Thin orchestration over `lib/`.
+- `src/cli/` — `grove.ts` (the single `grove` binary entry), plus `up.ts`, `down.ts`, `url.ts`, `dashboard.ts`, `hub.ts` (each exports a `run()`/`start()`/`stop()`/`serve()` function called by `grove.ts`). Thin orchestration over `lib/`.
 - `src/lib/` — the shared Bun/`node:*` modules + their colocated `*.test.ts`.
 - `src/web/` — the React + Vite SPA, including `dashboard.css`.
 
@@ -43,18 +44,21 @@ Vite root + entry (`index.html`), `vite.config.ts`, the two tsconfigs, `grove.co
 **Strict I/O / pure-logic split.** `src/lib/instances.ts` is the **only** module that touches the filesystem, git, `lsof`, the process table, or loads the config — everything else stays pure and unit-tested:
 
 - `src/lib/instances-utils.ts` — config/instance types, `resolveWorktreeDir` target resolution, `resolveEnv` (`${be}`/`${fe}` interpolation), `makeInstance`.
-- `src/lib/port-utils.ts` — `portsFor` (deterministic name→offset hash) and `urlStatus`.
+- `src/lib/port-utils.ts` — `portsFor` (deterministic name→offset hash), `dashboardPortFor` / `dashboardPorts` (PORT-5 range), `hubPort` (PORT-6), and `urlStatus`.
+- `src/lib/hub-utils.ts` — the hub's pure model: `toDashboard` (recognise an `/api/meta` reply), `staticHubResponse` / `isHubIdentity` (method gate, `/api/hub` identity, favicon), and `hubResponse` (index, `/<repoName>` redirect, duplicate-name choice page, 404; all HTML escaped).
 - `src/lib/dashboard-utils.ts` — the dashboard's pure model: `buildRows`, `apiRow`/`rowStatus`, orphan logic (`orphanInstances`/`reapTargets`/`prunedReaped`), the security guards (`isAllowedName`/`isActionableName`/`isSameOrigin`), and `formatPinoLog`.
 
-The five `src/cli/` files are thin orchestration over those two layers. `src/cli/dashboard.ts` resolves the grove repo root via `groveDir = join(import.meta.dir, '..', '..')` (it lives two levels down) to find the prebuilt `dist/` — distinct from `repoRoot`/`mainRepoRoot()`, which is the *consumer* repo grove drives.
+The six `src/cli/` files are thin orchestration over those two layers. `src/cli/dashboard.ts` resolves the grove repo root via `groveDir = join(import.meta.dir, '..', '..')` (it lives two levels down) to find the prebuilt `dist/` — distinct from `repoRoot`/`mainRepoRoot()`, which is the *consumer* repo grove drives.
 
 **Determinism & statelessness.** Ports derive from a hash of the worktree name (`portsFor`), so the same worktree always maps to the same URLs — there is no port registry to drift. Discovery is stateless: worktrees from `git worktree list`, ports from `portsFor`, liveness from a port probe. The listening **port** (not pid/cmdline) is the canonical identity of a slot, since slot cmdlines are identical across worktrees.
 
 **Config is loaded from the main repo** (`grove.config.jsonc` at the root resolved via the git common dir), never the invoking worktree's checked-out copy — so every worktree agrees on ports. Consequence (CFG-6): a branch needing a config edit can't be exercised from its own worktree; config changes are main-branch changes.
 
-**Shared state** lives in a gitignored `.grove/` at the main repo root: `instances/<name>.json`, `logs/<name>-{be,fe,up}.log`, `logs/dashboard.log`.
+**Shared state** lives in a gitignored `.grove/` at the main repo root: `instances/<name>.json`, `logs/<name>-{be,fe,up}.log`, `logs/dashboard.log`, `logs/hub.log`.
 
 **Dashboard** is a `Bun.serve` (loopback-only, `127.0.0.1`) JSON API (`/api/rows`, `/api/logs/<name>`, POST `/api/{up,down,restart}`) plus a **React + Vite + TypeScript SPA** in `src/web/`, built to `dist/` and served as static assets by the same server (non-`/api` paths fall back to `index.html`). The SPA polls `/api/rows` every 2s and reconciles by worktree-name key (no flicker / scroll loss / closing open log drawers); `src/web/reconcile.ts` holds the pure client-side launch-pending state machine.
+
+**Hub** is a second, read-only `Bun.serve` on a fixed port (`5050`, PORT-6) that lists every running dashboard on the machine (HUB-*). It is stateless: each request probes `/api/meta` on ports 4000–4099 and keeps replies with the `{ repoName, repoRoot }` shape. `/<repoName>` redirects (302) to that dashboard. It never proxies, so the dashboard's same-origin check is unchanged.
 
 ## Constraints
 
