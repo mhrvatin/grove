@@ -45,7 +45,7 @@ Vite root + entry (`index.html`), `vite.config.ts`, the two tsconfigs, `grove.co
 
 - `src/lib/instances-utils.ts` — config/instance types, `resolveWorktreeDir` target resolution, `resolveEnv` (`${be}`/`${fe}` interpolation), `makeInstance`.
 - `src/lib/port-utils.ts` — `portsFor` (deterministic name→offset hash), `dashboardPortFor` / `dashboardPorts` (PORT-5 range), `hubPort` (PORT-6), and `urlStatus`.
-- `src/lib/hub-utils.ts` — the hub's pure model: `toDashboard` (recognise an `/api/meta` reply) and `hubResponse` (index, `/<repoName>` redirect, duplicate-name choice page, 404; all HTML escaped).
+- `src/lib/hub-utils.ts` — the hub's pure model: `toDashboard` (recognise an `/api/meta` reply), `staticHubResponse` / `isHubIdentity` (method gate, `/api/hub` identity, favicon), and `hubResponse` (index, `/<repoName>` redirect, duplicate-name choice page, 404; all HTML escaped).
 - `src/lib/dashboard-utils.ts` — the dashboard's pure model: `buildRows`, `apiRow`/`rowStatus`, orphan logic (`orphanInstances`/`reapTargets`/`prunedReaped`), the security guards (`isAllowedName`/`isActionableName`/`isSameOrigin`), and `formatPinoLog`.
 
 The six `src/cli/` files are thin orchestration over those two layers. `src/cli/dashboard.ts` resolves the grove repo root via `groveDir = join(import.meta.dir, '..', '..')` (it lives two levels down) to find the prebuilt `dist/` — distinct from `repoRoot`/`mainRepoRoot()`, which is the *consumer* repo grove drives.

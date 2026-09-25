@@ -38,7 +38,6 @@ import {
 } from '../lib/instances.ts'
 import { isSingleConfig } from '../lib/instances-utils.ts'
 import { dashboardPortFor } from '../lib/port-utils.ts'
-import { startHub } from './hub.ts'
 
 const repoRoot = mainRepoRoot()
 const PORT = Number(process.env['DASHBOARD_PORT']) || dashboardPortFor(repoRoot)
@@ -230,13 +229,6 @@ export function serve(): void {
 }
 
 export function start(): void {
-  startDashboard()
-  // Ensure the hub on every start (DASH-1c), even when the dashboard was already
-  // running, so one `grove start` is always enough to make the hub URL work.
-  startHub()
-}
-
-function startDashboard(): void {
   // Always prints the URL (DASH-1c) — the port is now a per-repo hash (PORT-5),
   // not a fixed well-known value, so silence on the no-op path would leave the
   // caller with no way to know where their dashboard actually is. start() is

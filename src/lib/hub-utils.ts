@@ -7,6 +7,34 @@ export type Dashboard = { port: number; repoName: string; repoRoot: string }
 
 export type HubResponse = { status: number; headers: Record<string, string>; body: string }
 
+// GET /api/hub reply. It lets `grove hub start|stop` tell the hub apart from any
+// other process on the hub port (PORT-6). A repo basename can't contain `/`, so
+// this path never shadows a /<repoName> route.
+export const HUB_IDENTITY = { hub: 'grove' } as const
+const HUB_IDENTITY_PATH = '/api/hub'
+
+export function isHubIdentity(reply: unknown): boolean {
+  return typeof reply === 'object' && reply !== null && (reply as { hub?: unknown }).hub === 'grove'
+}
+
+// Responses that need no dashboard probe: the method gate (HUB-1), the identity
+// path (HUB-6), and the browser's favicon request. null means "probe, then call
+// hubResponse".
+export function staticHubResponse(method: string, pathname: string): HubResponse | null {
+  if (method !== 'GET' && method !== 'HEAD') {
+    return { status: 405, headers: {}, body: 'method not allowed' }
+  }
+  if (pathname === HUB_IDENTITY_PATH) {
+    return {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(HUB_IDENTITY),
+    }
+  }
+  if (pathname === '/favicon.ico') return { status: 404, headers: {}, body: '' }
+  return null
+}
+
 // A port counts as a grove dashboard only if its GET /api/meta returns this
 // shape (DASH-19a); anything else on the dashboard range is ignored.
 export function toDashboard(port: number, meta: unknown): Dashboard | null {

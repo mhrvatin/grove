@@ -1,5 +1,12 @@
 import { describe, expect, test } from 'bun:test'
-import { type Dashboard, hubResponse, toDashboard } from './hub-utils.ts'
+import {
+  type Dashboard,
+  HUB_IDENTITY,
+  hubResponse,
+  isHubIdentity,
+  staticHubResponse,
+  toDashboard,
+} from './hub-utils.ts'
 
 const facit: Dashboard = { port: 4012, repoName: 'facit', repoRoot: '/code/facit' }
 const reda: Dashboard = { port: 4071, repoName: 'reda', repoRoot: '/code/reda' }
@@ -85,5 +92,36 @@ describe('toDashboard', () => {
     expect(toDashboard(4012, null)).toBeNull()
     expect(toDashboard(4012, 'hello')).toBeNull()
     expect(toDashboard(4012, [])).toBeNull()
+  })
+})
+
+// covers: HUB-1, HUB-6
+describe('staticHubResponse', () => {
+  test('rejects methods other than GET and HEAD with 405', () => {
+    expect(staticHubResponse('POST', '/')?.status).toBe(405)
+    expect(staticHubResponse('DELETE', '/facit')?.status).toBe(405)
+  })
+
+  test('answers the identity path so grove can tell its hub from another process', () => {
+    const res = staticHubResponse('GET', '/api/hub')
+    expect(res?.status).toBe(200)
+    expect(isHubIdentity(JSON.parse(res?.body ?? ''))).toBe(true)
+  })
+
+  test('returns a bare 404 for /favicon.ico', () => {
+    expect(staticHubResponse('GET', '/favicon.ico')).toEqual({ status: 404, headers: {}, body: '' })
+  })
+
+  test('defers every other GET or HEAD to hubResponse', () => {
+    expect(staticHubResponse('GET', '/')).toBeNull()
+    expect(staticHubResponse('HEAD', '/facit')).toBeNull()
+  })
+})
+
+describe('isHubIdentity', () => {
+  test('accepts only the hub identity reply', () => {
+    expect(isHubIdentity(HUB_IDENTITY)).toBe(true)
+    expect(isHubIdentity({ repoName: 'facit', repoRoot: '/code/facit' })).toBe(false)
+    expect(isHubIdentity(null)).toBe(false)
   })
 })

@@ -45,7 +45,12 @@ if (process.argv[2] === 'serve') {
   program
     .command('start')
     .description('Start the dashboard and the hub (idempotent — no-op if already running)')
-    .action(start)
+    .action(async () => {
+      start()
+      // Ensure the hub on every start (DASH-1c), even when the dashboard was
+      // already running, so one `grove start` always makes the hub URL work.
+      await startHub()
+    })
 
   program.command('stop').description('Stop the dashboard').action(stop)
 

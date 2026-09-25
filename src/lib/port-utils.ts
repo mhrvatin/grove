@@ -54,7 +54,14 @@ export function dashboardPorts(): number[] {
 const HUB_PORT = 5050
 
 export function hubPort(override: string | undefined): number {
-  return Number(override) || HUB_PORT
+  const port = Number(override) || HUB_PORT
+  if (port >= DASHBOARD_PORT_BASE && port < DASHBOARD_PORT_BASE + DASHBOARD_PORT_SPAN) {
+    const last = DASHBOARD_PORT_BASE + DASHBOARD_PORT_SPAN - 1
+    throw new Error(
+      `GROVE_HUB_PORT=${port} is inside the dashboard range ${DASHBOARD_PORT_BASE}-${last}`,
+    )
+  }
+  return port
 }
 
 // The grove-url output line + exit code for the app's port (URL-2). The URL is

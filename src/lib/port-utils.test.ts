@@ -148,3 +148,10 @@ describe('hubPort', () => {
     expect(hubPort('abc')).toBe(5050)
   })
 })
+
+// covers: PORT-6
+describe('hubPort — override inside the dashboard range', () => {
+  test('throws, because the hub would then probe itself', () => {
+    expect(() => hubPort('4050')).toThrow('4000-4099')
+  })
+})
