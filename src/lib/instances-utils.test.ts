@@ -25,6 +25,14 @@ describe('resolveWorktreeDir', () => {
     )
   })
 
+  test('matches Copilot and plain Git worktrees outside the Claude directory', () => {
+    const copilot = '/Users/me/myrepo/.worktrees/copilot-feature'
+    const plain = '/Users/me/other-dir/plain-git-feature'
+    const worktrees = [...DIRS, copilot, plain]
+    expect(resolveWorktreeDir('copilot-feature', worktrees, '/cur')).toBe(copilot)
+    expect(resolveWorktreeDir('plain-git-feature', worktrees, '/cur')).toBe(plain)
+  })
+
   test('an absolute worktree path resolves to its own entry (first match wins)', () => {
     // The main repo path is a substring of the longer combined path, but the
     // main entry comes first in the list — mirrors `git worktree list` order.

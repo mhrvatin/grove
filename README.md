@@ -38,13 +38,18 @@ every worktree agrees on ports. Bun parses `.jsonc` natively, so comments are fi
 | `grove down [target]` | Stop a worktree's instances |
 | `grove down --all` | Stop all running instances |
 | `grove url [target]` | Print a worktree's URL (exits non-zero + `(down)` if nothing's listening) |
-| `grove start` | Start the dashboard (idempotent — no-op if already running; serves the prebuilt SPA), then ensure the hub is running |
+| `grove start` | Start the dashboard (no-op if healthy; replace a broken dashboard from a deleted worktree), then ensure the hub is running |
 | `grove stop` | Stop the dashboard (the hub keeps running) |
 | `grove hub start` | Start the hub (idempotent) |
 | `grove hub stop` | Stop the hub |
 
 `target` matches the current worktree when empty, otherwise the first worktree whose
 path contains the given name fragment or absolute path.
+
+Grove discovers worktrees through `git worktree list`, whether they were created by
+Copilot, Claude, or Git directly. A dashboard started from a worktree can lose its
+assets if that worktree is removed. Run `grove start` from a remaining checkout to
+replace the broken dashboard; starting it from the main checkout avoids this issue.
 
 ## Hub
 

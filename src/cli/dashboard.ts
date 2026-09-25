@@ -8,6 +8,7 @@
 // git), so no HTML-escaping / auth. Add both if this ever leaves localhost.
 import { closeSync, existsSync, mkdirSync, openSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { probeDashboard } from '../lib/dashboard-health.ts'
 import {
   type ApiRow,
   apiRow,
@@ -228,16 +229,25 @@ export function serve(): void {
   console.log(`dashboard on http://localhost:${PORT}`)
 }
 
-export function start(): void {
-  // Always prints the URL (DASH-1c) — the port is now a per-repo hash (PORT-5),
-  // not a fixed well-known value, so silence on the no-op path would leave the
-  // caller with no way to know where their dashboard actually is. start() is
-  // fire-and-forget detached, so this catches only the synchronous mkdir/spawn
-  // failures; it cannot verify the dashboard actually bound.
+export async function start(): Promise<void> {
+  // Print the per-repo URL on success (DASH-1d); silence on a no-op would
+  // leave the caller with no way to know where the dashboard is. The detached
+  // spawn cannot guarantee that the replacement has bound yet.
   try {
-    if (portsInUse([PORT]).length > 0) {
-      console.log(`dashboard on http://localhost:${PORT}`) // already running → no-op
-      return
+    const occupied = portsInUse([PORT]).length > 0
+    if (occupied) {
+      let health = await probeDashboard(PORT, repoName, repoRoot)
+      for (let retry = 0; retry < 2 && health === 'unverified'; retry++) {
+        await Bun.sleep(50)
+        health = await probeDashboard(PORT, repoName, repoRoot)
+      }
+      if (health === 'healthy') {
+        console.log(`dashboard on http://localhost:${PORT}`)
+        return
+      }
+      if (health === 'foreign' || health === 'unverified') {
+        throw new Error(`port ${PORT} is in use by another process or could not be verified`)
+      }
     }
     // dist/ ships prebuilt and committed (DASH-20) — grove is consumed as an
     // external git dependency, where vite (a devDependency) is never installed,
@@ -248,6 +258,15 @@ export function start(): void {
         `dist/index.html not found at ${groveDir} — grove's dashboard SPA must be prebuilt ` +
           "and committed (run 'bun run build:bundle' and commit dist/ before pinning a version)",
       )
+    }
+    if (occupied) {
+      killByPortAndPids([PORT], [])
+      for (let attempt = 0; attempt < 20 && portsInUse([PORT]).length > 0; attempt++) {
+        await Bun.sleep(50)
+      }
+      if (portsInUse([PORT]).length > 0) {
+        throw new Error(`port ${PORT} is still in use after stopping the broken dashboard`)
+      }
     }
     mkdirSync(join(groveRoot(), 'logs'), { recursive: true })
     const log = join(groveRoot(), 'logs', 'dashboard.log')
