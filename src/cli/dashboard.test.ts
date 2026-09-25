@@ -4,6 +4,17 @@ import { tmpdir } from 'node:os'
 import { basename, join } from 'node:path'
 import { listenerIsInRepo } from '../lib/instances.ts'
 
+function consumerEnv(port: number): Record<string, string | undefined> {
+  const env = { ...process.env, DASHBOARD_PORT: String(port) }
+  for (const name of Bun.spawnSync(['git', 'rev-parse', '--local-env-vars'])
+    .stdout.toString()
+    .trim()
+    .split('\n')) {
+    delete env[name]
+  }
+  return env
+}
+
 async function waitForStatus(port: number, status: number): Promise<void> {
   for (let attempt = 0; attempt < 50; attempt++) {
     try {
@@ -32,7 +43,7 @@ test('start replaces a broken dashboard launched from an old worktree', async ()
   portServer.stop(true)
   if (port === undefined) throw new Error('test server has no TCP port')
 
-  const env = { ...process.env, DASHBOARD_PORT: String(port) }
+  const env = consumerEnv(port)
   const old = Bun.spawn(
     [
       'bun',
@@ -52,7 +63,7 @@ test('start replaces a broken dashboard launched from an old worktree', async ()
   try {
     await waitForStatus(port, 500)
     await waitForListener(port, dir)
-    const git = Bun.spawnSync(['git', 'init', '--quiet', dir])
+    const git = Bun.spawnSync(['git', 'init', '--quiet', dir], { env })
     expect(git.exitCode).toBe(0)
 
     const result = Bun.spawnSync(
@@ -114,10 +125,11 @@ test('start leaves a broken legacy dashboard from another repo running', async (
   )
   try {
     await waitForStatus(port, 500)
-    expect(Bun.spawnSync(['git', 'init', '--quiet', dir]).exitCode).toBe(0)
+    const env = consumerEnv(port)
+    expect(Bun.spawnSync(['git', 'init', '--quiet', dir], { env }).exitCode).toBe(0)
     const result = Bun.spawnSync(
       ['bun', '-e', `const { start } = await import(${JSON.stringify(script)}); await start()`],
-      { cwd: dir, env: { ...process.env, DASHBOARD_PORT: String(port) } },
+      { cwd: dir, env },
     )
     expect(result.stderr.toString()).toContain(`port ${port} is in use`)
     expect((await fetch(`http://127.0.0.1:${port}/`)).status).toBe(500)
