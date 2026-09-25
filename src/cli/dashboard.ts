@@ -236,12 +236,16 @@ export async function start(): Promise<void> {
   try {
     const occupied = portsInUse([PORT]).length > 0
     if (occupied) {
-      const health = await probeDashboard(PORT, repoName, repoRoot)
+      let health = await probeDashboard(PORT, repoName, repoRoot)
+      for (let retry = 0; retry < 2 && health === 'unverified'; retry++) {
+        await Bun.sleep(50)
+        health = await probeDashboard(PORT, repoName, repoRoot)
+      }
       if (health === 'healthy') {
         console.log(`dashboard on http://localhost:${PORT}`)
         return
       }
-      if (health === 'other') {
+      if (health === 'foreign' || health === 'unverified') {
         throw new Error(`port ${PORT} is in use by another process or could not be verified`)
       }
     }

@@ -50,7 +50,7 @@ describe('probeDashboard', () => {
       },
     })
     try {
-      expect(await probeDashboard(boundPort(server), 'logga', '/repos/logga')).toBe('other')
+      expect(await probeDashboard(boundPort(server), 'logga', '/repos/logga')).toBe('foreign')
     } finally {
       server.stop(true)
     }
@@ -67,7 +67,24 @@ describe('probeDashboard', () => {
       },
     })
     try {
-      expect(await probeDashboard(boundPort(server), 'logga', '/repos/another-logga')).toBe('other')
+      expect(await probeDashboard(boundPort(server), 'logga', '/repos/another-logga')).toBe(
+        'foreign',
+      )
+    } finally {
+      server.stop(true)
+    }
+  })
+
+  test('treats a failed identity request as unverified, not foreign', async () => {
+    const server = Bun.serve({
+      hostname: '127.0.0.1',
+      port: 0,
+      fetch() {
+        return new Response('busy', { status: 503 })
+      },
+    })
+    try {
+      expect(await probeDashboard(boundPort(server), 'logga', process.cwd())).toBe('unverified')
     } finally {
       server.stop(true)
     }

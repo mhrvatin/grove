@@ -1,6 +1,6 @@
 import { listenerIsInRepo } from './instances.ts'
 
-type DashboardHealth = 'healthy' | 'broken' | 'other'
+type DashboardHealth = 'healthy' | 'broken' | 'foreign' | 'unverified'
 
 const PROBE_TIMEOUT_MS = 500
 
@@ -15,12 +15,12 @@ export async function probeDashboard(
     const response = await fetch(`${base}/api/meta`, {
       signal: AbortSignal.timeout(PROBE_TIMEOUT_MS),
     })
-    if (!response.ok) return 'other'
+    if (!response.ok) return 'unverified'
     meta = await response.json()
   } catch {
-    return 'other'
+    return 'unverified'
   }
-  if (typeof meta !== 'object' || meta === null) return 'other'
+  if (typeof meta !== 'object' || meta === null) return 'foreign'
   const identity = meta as Record<string, unknown>
   if (
     identity['repoName'] !== repoName ||
@@ -28,7 +28,7 @@ export async function probeDashboard(
       ? !listenerIsInRepo(port, repoRoot)
       : identity['repoRoot'] !== repoRoot)
   ) {
-    return 'other'
+    return 'foreign'
   }
 
   try {
@@ -38,6 +38,6 @@ export async function probeDashboard(
     })
     return response.ok ? 'healthy' : 'broken'
   } catch {
-    return 'other'
+    return 'unverified'
   }
 }
