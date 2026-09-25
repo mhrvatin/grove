@@ -5,7 +5,10 @@ import { basename, join } from 'node:path'
 import { listenerIsInRepo } from '../lib/instances.ts'
 
 function consumerEnv(port: number): Record<string, string | undefined> {
-  const env = { ...process.env, DASHBOARD_PORT: String(port) }
+  const env: Record<string, string | undefined> = {
+    ...process.env,
+    DASHBOARD_PORT: String(port),
+  }
   for (const name of Bun.spawnSync(['git', 'rev-parse', '--local-env-vars'])
     .stdout.toString()
     .trim()
