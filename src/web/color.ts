@@ -1,4 +1,4 @@
-// Repo-distinguishing accent for the dashboard header gradient (DASH-19). Web-side
+// Repo-distinguishing accent for the dashboard header gradient (DASH-19a). Web-side
 // (no src/lib import, per the browser-bundle boundary).
 const HUE_SPAN = 360
 

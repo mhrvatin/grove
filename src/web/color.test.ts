@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import { gradientColorFor, hueFor } from './color'
 
-// covers: DASH-19
+// covers: DASH-19a
 describe('hueFor', () => {
   test('is deterministic for the same name', () => {
     expect(hueFor('grove')).toBe(hueFor('grove'))

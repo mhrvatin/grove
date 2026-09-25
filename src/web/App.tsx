@@ -19,7 +19,7 @@ export function App() {
   const [stop, setStop] = useState<StopState>(EMPTY_STOP)
   const [repoName, setRepoName] = useState<string | null>(null)
 
-  // Repo identity never changes during a session (DASH-19), so a plain mount
+  // Repo identity never changes during a session (DASH-19a), so a plain mount
   // effect — not usePoll — fetches it once and derives the gradient hue from it.
   useEffect(() => {
     fetchMeta()

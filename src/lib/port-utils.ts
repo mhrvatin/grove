@@ -43,6 +43,20 @@ export function dashboardPortFor(repoRoot: string): number {
   return DASHBOARD_PORT_BASE + hashOffset(repoRoot, DASHBOARD_PORT_SPAN)
 }
 
+// Every port dashboardPortFor can return, so the hub can probe for dashboards
+// statelessly instead of keeping a registry (HUB-2).
+export function dashboardPorts(): number[] {
+  return Array.from({ length: DASHBOARD_PORT_SPAN }, (_, i) => DASHBOARD_PORT_BASE + i)
+}
+
+// The hub's fixed, memorable port (PORT-6). It sits outside the dashboard range,
+// so no dashboard hash can ever land on it; $GROVE_HUB_PORT overrides it.
+const HUB_PORT = 5050
+
+export function hubPort(override: string | undefined): number {
+  return Number(override) || HUB_PORT
+}
+
 // The grove-url output line + exit code for the app's port (URL-2). The URL is
 // always the real deterministic location (URL-1); liveness only adds a suffix and
 // flips the exit code, so a caller can branch on up/down without parsing.

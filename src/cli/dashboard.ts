@@ -38,6 +38,7 @@ import {
 } from '../lib/instances.ts'
 import { isSingleConfig } from '../lib/instances-utils.ts'
 import { dashboardPortFor } from '../lib/port-utils.ts'
+import { startHub } from './hub.ts'
 
 const repoRoot = mainRepoRoot()
 const PORT = Number(process.env['DASHBOARD_PORT']) || dashboardPortFor(repoRoot)
@@ -197,7 +198,7 @@ export function serve(): void {
         }
         return new Response('unknown action', { status: 404 })
       }
-      if (action === 'meta') return Response.json({ repoName })
+      if (action === 'meta') return Response.json({ repoName, repoRoot })
       if (action === 'rows') return Response.json(await apiRows())
       if (action === 'logs' && name) {
         // Guard name first: it now flows into a filesystem path (path-traversal).
@@ -229,7 +230,14 @@ export function serve(): void {
 }
 
 export function start(): void {
-  // Always prints the URL (DASH-1b) — the port is now a per-repo hash (PORT-5),
+  startDashboard()
+  // Ensure the hub on every start (DASH-1c), even when the dashboard was already
+  // running, so one `grove start` is always enough to make the hub URL work.
+  startHub()
+}
+
+function startDashboard(): void {
+  // Always prints the URL (DASH-1c) — the port is now a per-repo hash (PORT-5),
   // not a fixed well-known value, so silence on the no-op path would leave the
   // caller with no way to know where their dashboard actually is. start() is
   // fire-and-forget detached, so this catches only the synchronous mkdir/spawn

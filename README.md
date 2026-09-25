@@ -38,11 +38,26 @@ every worktree agrees on ports. Bun parses `.jsonc` natively, so comments are fi
 | `grove down [target]` | Stop a worktree's instances |
 | `grove down --all` | Stop all running instances |
 | `grove url [target]` | Print a worktree's URL (exits non-zero + `(down)` if nothing's listening) |
-| `grove start` | Start the dashboard (idempotent — no-op if already running; serves the prebuilt SPA) |
-| `grove stop` | Stop the dashboard |
+| `grove start` | Start the dashboard (idempotent — no-op if already running; serves the prebuilt SPA), then ensure the hub is running |
+| `grove stop` | Stop the dashboard (the hub keeps running) |
+| `grove hub start` | Start the hub (idempotent) |
+| `grove hub stop` | Stop the hub |
 
 `target` matches the current worktree when empty, otherwise the first worktree whose
 path contains the given name fragment or absolute path.
+
+## Hub
+
+Each repo's dashboard gets its own port, derived from the repo path (4000–4099). To
+avoid remembering them, `grove start` also starts a hub on a fixed port:
+
+- `http://localhost:5050` lists every running grove dashboard on the machine.
+- `http://localhost:5050/<repo>` redirects to that repo's dashboard, for example
+  `localhost:5050/facit`. If two running repos share a name, it lists both.
+
+Set `GROVE_HUB_PORT` to use another port. The hub finds dashboards by probing
+4000–4099 on each request, so a dashboard started with a `DASHBOARD_PORT` outside that
+range is not listed.
 
 ## Tests
 

@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import type { GroveConfig } from './instances-utils.ts'
-import { dashboardPortFor, portsFor, urlStatus } from './port-utils.ts'
+import { dashboardPortFor, dashboardPorts, hubPort, portsFor, urlStatus } from './port-utils.ts'
 
 const slot = (portBase: number) => ({ portBase, cmd: [], env: {} })
 const dualConfig: GroveConfig = {
@@ -116,5 +116,35 @@ describe('urlStatus', () => {
 
   test('down: URL with (down) suffix and non-zero exit', () => {
     expect(urlStatus(5269, false)).toEqual({ line: 'http://localhost:5269 (down)', code: 1 })
+  })
+})
+
+// covers: PORT-6
+describe('dashboardPorts', () => {
+  test('is the whole range every dashboardPortFor result falls in', () => {
+    const ports = dashboardPorts()
+    expect(ports).toHaveLength(100)
+    expect(ports[0]).toBe(4000)
+    expect(ports.at(-1)).toBe(4099)
+    for (const repoRoot of ['/Users/a/repo', '/x', '']) {
+      expect(ports).toContain(dashboardPortFor(repoRoot))
+    }
+  })
+})
+
+// covers: PORT-6, HUB-1
+describe('hubPort', () => {
+  test('defaults to 5050, outside the dashboard range', () => {
+    expect(hubPort(undefined)).toBe(5050)
+    expect(dashboardPorts()).not.toContain(hubPort(undefined))
+  })
+
+  test('honours a numeric override', () => {
+    expect(hubPort('6060')).toBe(6060)
+  })
+
+  test('falls back to the default on an empty or non-numeric override', () => {
+    expect(hubPort('')).toBe(5050)
+    expect(hubPort('abc')).toBe(5050)
   })
 })
