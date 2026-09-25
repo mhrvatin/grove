@@ -1,0 +1,43 @@
+import { listenerIsInRepo } from './instances.ts'
+
+type DashboardHealth = 'healthy' | 'broken' | 'other'
+
+const PROBE_TIMEOUT_MS = 500
+
+export async function probeDashboard(
+  port: number,
+  repoName: string,
+  repoRoot: string,
+): Promise<DashboardHealth> {
+  const base = `http://127.0.0.1:${port}`
+  let meta: unknown
+  try {
+    const response = await fetch(`${base}/api/meta`, {
+      signal: AbortSignal.timeout(PROBE_TIMEOUT_MS),
+    })
+    if (!response.ok) return 'other'
+    meta = await response.json()
+  } catch {
+    return 'other'
+  }
+  if (typeof meta !== 'object' || meta === null) return 'other'
+  const identity = meta as Record<string, unknown>
+  if (
+    identity['repoName'] !== repoName ||
+    (identity['repoRoot'] === undefined
+      ? !listenerIsInRepo(port, repoRoot)
+      : identity['repoRoot'] !== repoRoot)
+  ) {
+    return 'other'
+  }
+
+  try {
+    const response = await fetch(`${base}/`, {
+      signal: AbortSignal.timeout(PROBE_TIMEOUT_MS),
+      redirect: 'manual',
+    })
+    return response.ok ? 'healthy' : 'broken'
+  } catch {
+    return 'other'
+  }
+}
