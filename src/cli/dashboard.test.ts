@@ -56,8 +56,22 @@ test('start replaces a broken dashboard launched from an old worktree', async ()
       ['bun', '-e', `const { start } = await import(${JSON.stringify(script)}); await start()`],
       { cwd: dir, env },
     )
+    if (result.stderr.length > 0) {
+      const healthScript = new URL('../lib/dashboard-health.ts', import.meta.url).href
+      const diagnosis = Bun.spawnSync(
+        [
+          'bun',
+          '-e',
+          `const { probeDashboard } = await import(${JSON.stringify(healthScript)});
+           console.log(await probeDashboard(${port}, ${JSON.stringify(basename(dir))}, ${JSON.stringify(dir)}))`,
+        ],
+        { cwd: dir, env },
+      )
+      throw new Error(
+        `${result.stderr.toString()} (subsequent probe: ${diagnosis.stdout.toString()})`,
+      )
+    }
     expect(result.exitCode).toBe(0)
-    expect(result.stderr.toString()).toBe('')
     expect(result.stdout.toString()).toContain(`dashboard on http://localhost:${port}`)
     await waitForStatus(port, 200)
     const meta = await fetch(`http://127.0.0.1:${port}/api/meta`)
