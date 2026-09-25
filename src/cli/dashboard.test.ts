@@ -2,6 +2,7 @@ import { expect, test } from 'bun:test'
 import { mkdtempSync, realpathSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { basename, join } from 'node:path'
+import { listenerIsInRepo } from '../lib/instances.ts'
 
 async function waitForStatus(port: number, status: number): Promise<void> {
   for (let attempt = 0; attempt < 50; attempt++) {
@@ -13,6 +14,14 @@ async function waitForStatus(port: number, status: number): Promise<void> {
     await Bun.sleep(50)
   }
   throw new Error(`dashboard on port ${port} did not return ${status}`)
+}
+
+async function waitForListener(port: number, repoRoot: string): Promise<void> {
+  for (let attempt = 0; attempt < 20; attempt++) {
+    if (listenerIsInRepo(port, repoRoot)) return
+    await Bun.sleep(50)
+  }
+  throw new Error(`listener on port ${port} was not owned by ${repoRoot}`)
 }
 
 test('start replaces a broken dashboard launched from an old worktree', async () => {
@@ -39,6 +48,7 @@ test('start replaces a broken dashboard launched from an old worktree', async ()
 
   try {
     await waitForStatus(port, 500)
+    await waitForListener(port, dir)
     const git = Bun.spawnSync(['git', 'init', '--quiet', dir])
     expect(git.exitCode).toBe(0)
 
@@ -47,8 +57,8 @@ test('start replaces a broken dashboard launched from an old worktree', async ()
       { cwd: dir, env },
     )
     expect(result.exitCode).toBe(0)
-    expect(result.stdout.toString()).toContain(`dashboard on http://localhost:${port}`)
     expect(result.stderr.toString()).toBe('')
+    expect(result.stdout.toString()).toContain(`dashboard on http://localhost:${port}`)
     await waitForStatus(port, 200)
     const meta = await fetch(`http://127.0.0.1:${port}/api/meta`)
     expect(await meta.json()).toEqual({ repoName: basename(dir), repoRoot: dir })
