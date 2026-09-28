@@ -24,7 +24,7 @@ CLI entrypoints (single `grove` binary declared in `package.json` `bin`, run wit
 - `grove up [target]` — launch FE+BE for a worktree (no arg = current)
 - `grove down [target | --all]` — stop instances
 - `grove url [target]` — print FE URL; exits non-zero + ` (down)` suffix when nothing's listening
-- `grove start` — start the dashboard (idempotent; serves the prebuilt SPA from `dist/`, DASH-20), then ensure the hub is running
+- `grove start` — start the dashboard (idempotent if healthy; replaces a broken listener from a removed worktree, DASH-1d; serves prebuilt `dist/`, DASH-20), then ensure the hub is running
 - `grove stop` — stop the dashboard (leaves the hub running)
 - `grove hub start` / `grove hub stop` — start or stop the hub on `localhost:5050` (`$GROVE_HUB_PORT` overrides)
 - `grove serve` / `grove serve-hub` — internal re-launch args (used by `grove start` / `grove hub start`; not in `--help`). `target` = current worktree when empty, else first worktree whose path contains the substring.

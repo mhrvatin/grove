@@ -175,6 +175,17 @@ function lsofPids(port: number, listenOnly: boolean): number[] {
   return out ? out.split('\n').map(Number) : []
 }
 
+export function listenerIsInRepo(port: number, repoRoot: string): boolean {
+  // Legacy dashboards identify only by basename; their detached process still
+  // has the canonical main repo as cwd even when its launch worktree is gone.
+  const [pid, ...otherPids] = lsofPids(port, true)
+  if (!pid || otherPids.length > 0) return false
+  const details = decode(
+    Bun.spawnSync(['lsof', '-Fn', '-a', '-p', String(pid), '-d', 'cwd']).stdout,
+  )
+  return details.split('\n').includes(`n${repoRoot}`)
+}
+
 // Which of these ports already have a listener (the grove-up in-use precheck).
 export function portsInUse(ports: number[]): number[] {
   return ports.filter((p) => lsofPids(p, true).length > 0)

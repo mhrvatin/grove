@@ -8,7 +8,7 @@ default:
 build:
     bun run build
 
-# SPA bundle only, no typecheck — what `grove start` runs on first launch
+# SPA bundle only, no typecheck — commit dist/ before pinning a version
 build-bundle:
     bun run build:bundle
 
