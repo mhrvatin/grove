@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { type Action, fetchMeta, fetchRows, postAction } from './api'
 import { liveNames } from './bulk'
-import { gradientColorFor } from './color'
 import { Icon } from './Icon'
 import { type ClientState, reconcile } from './reconcile'
 import { Sprite } from './Sprite'
@@ -19,17 +18,16 @@ export function App() {
   const [stop, setStop] = useState<StopState>(EMPTY_STOP)
   const [repoName, setRepoName] = useState<string | null>(null)
 
-  // Repo identity never changes during a session (DASH-19a), so a plain mount
-  // effect — not usePoll — fetches it once and derives the gradient hue from it.
+  // Repo identity never changes during a session (DASH-19b), so a plain mount
+  // effect — not usePoll — fetches it once, along with the gradient color.
   useEffect(() => {
     fetchMeta()
       .then((meta) => {
         setRepoName(meta.repoName)
         document.title = `Grove - ${meta.repoName}`
-        document.documentElement.style.setProperty(
-          '--gradient-color',
-          gradientColorFor(meta.repoName),
-        )
+        if (meta.color) {
+          document.documentElement.style.setProperty('--gradient-color', meta.color)
+        }
       })
       .catch(() => {})
   }, [])

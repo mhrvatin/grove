@@ -1,7 +1,8 @@
 import { expect, test } from 'bun:test'
-import { mkdtempSync, realpathSync, rmSync } from 'node:fs'
+import { mkdtempSync, readFileSync, realpathSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { basename, join } from 'node:path'
+import { PALETTE } from '../lib/color-utils.ts'
 import { listenerIsInRepo } from '../lib/instances.ts'
 
 function consumerEnv(port: number): Record<string, string | undefined> {
@@ -47,6 +48,8 @@ test('start replaces a broken dashboard launched from an old worktree', async ()
   if (port === undefined) throw new Error('test server has no TCP port')
 
   const env = consumerEnv(port)
+  const rcPath = join(dir, '.groverc')
+  env['GROVE_RC'] = rcPath
   const old = Bun.spawn(
     [
       'bun',
@@ -92,7 +95,8 @@ test('start replaces a broken dashboard launched from an old worktree', async ()
     expect(result.stdout.toString()).toContain(`dashboard on http://localhost:${port}`)
     await waitForStatus(port, 200)
     const meta = await fetch(`http://127.0.0.1:${port}/api/meta`)
-    expect(await meta.json()).toEqual({ repoName: basename(dir), repoRoot: dir })
+    expect(await meta.json()).toEqual({ repoName: basename(dir), repoRoot: dir, color: PALETTE[0] })
+    expect(JSON.parse(readFileSync(rcPath, 'utf8'))).toEqual({ colors: { [dir]: PALETTE[0] } })
   } finally {
     Bun.spawnSync(
       ['bun', '-e', `const { stop } = await import(${JSON.stringify(script)}); stop()`],

@@ -54,7 +54,7 @@ The six `src/cli/` files are thin orchestration over those two layers. `src/cli/
 
 **Config is loaded from the main repo** (`grove.config.jsonc` at the root resolved via the git common dir), never the invoking worktree's checked-out copy — so every worktree agrees on ports. Consequence (CFG-6): a branch needing a config edit can't be exercised from its own worktree; config changes are main-branch changes.
 
-**Shared state** lives in a gitignored `.grove/` at the main repo root: `instances/<name>.json`, `logs/<name>-{be,fe,up}.log`, `logs/dashboard.log`, `logs/hub.log`.
+**Shared state** lives in a gitignored `.grove/` at the main repo root: `instances/<name>.json`, `logs/<name>-{be,fe,up}.log`, `logs/dashboard.log`, `logs/hub.log`. The one machine-wide file is `~/.groverc` (STATE-3), which maps each repo root to its dashboard accent color.
 
 **Dashboard** is a `Bun.serve` (loopback-only, `127.0.0.1`) JSON API (`/api/rows`, `/api/logs/<name>`, POST `/api/{up,down,restart}`) plus a **React + Vite + TypeScript SPA** in `src/web/`, built to `dist/` and served as static assets by the same server (non-`/api` paths fall back to `index.html`). The SPA polls `/api/rows` every 2s and reconciles by worktree-name key (no flicker / scroll loss / closing open log drawers); `src/web/reconcile.ts` holds the pure client-side launch-pending state machine.
 
