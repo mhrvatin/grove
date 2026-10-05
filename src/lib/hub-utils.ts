@@ -36,7 +36,7 @@ export function staticHubResponse(method: string, pathname: string): HubResponse
 }
 
 // A port counts as a grove dashboard only if its GET /api/meta returns this
-// shape (DASH-19a); anything else on the dashboard range is ignored.
+// shape (DASH-19b); anything else on the dashboard range is ignored.
 export function toDashboard(port: number, meta: unknown): Dashboard | null {
   if (typeof meta !== 'object' || meta === null) return null
   const { repoName, repoRoot } = meta as Record<string, unknown>

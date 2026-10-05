@@ -87,7 +87,7 @@ describe('hubResponse — escaping', () => {
   })
 })
 
-// covers: HUB-2, DASH-19a
+// covers: HUB-2, DASH-19b
 describe('toDashboard', () => {
   test('accepts a grove /api/meta reply', () => {
     expect(toDashboard(4012, { repoName: 'facit', repoRoot: '/code/facit' })).toEqual(facit)

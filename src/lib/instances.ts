@@ -3,17 +3,21 @@
 // the only module that touches the filesystem, git, lsof, the process table,
 // and that loads grove.config.jsonc. No top-level run, no shebang — it is imported.
 import {
+  closeSync,
   existsSync,
   mkdirSync,
   openSync,
   readdirSync,
   readFileSync,
+  renameSync,
   rmSync,
   symlinkSync,
   writeFileSync,
 } from 'node:fs'
+import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { pathToFileURL } from 'node:url'
+import { assignColor } from './color-utils.ts'
 import {
   type GroveConfig,
   type GroveSlot,
@@ -43,6 +47,40 @@ export function mainRepoRoot(): string {
 // Shared .grove/ at the main repo root.
 export function groveRoot(): string {
   return join(mainRepoRoot(), '.grove')
+}
+
+// Machine-wide user file (STATE-3). $GROVE_RC overrides it, mainly for tests.
+export function groveRcPath(): string {
+  return process.env['GROVE_RC'] || join(homedir(), '.groverc')
+}
+
+// The repo's dashboard accent color (DASH-19b), assigning and recording one on
+// first use. Returns null if ~/.groverc can't be parsed or written, rather than
+// overwriting a file the user may be mid-edit on.
+// ponytail: two dashboards assigning at the same instant can race (last write
+// wins, so one repo is reassigned on its next read). Not worth a lock file.
+export function repoColor(repoRoot: string): string | null {
+  const path = groveRcPath()
+  const tmp = `${path}.${process.pid}.tmp`
+  try {
+    const rc: unknown = existsSync(path) ? JSON.parse(readFileSync(path, 'utf8')) : {}
+    const result = assignColor(rc, repoRoot)
+    if (result.changed) {
+      // 'wx' refuses an existing path, so a planted symlink at tmp can't redirect the write.
+      const fd = openSync(tmp, 'wx', 0o600)
+      try {
+        writeFileSync(fd, `${JSON.stringify(result.rc, null, 2)}\n`)
+      } finally {
+        closeSync(fd)
+      }
+      renameSync(tmp, path)
+    }
+    return result.color
+  } catch (err) {
+    rmSync(tmp, { force: true })
+    console.error(`grove: could not read or update ${path}: ${String(err)}`)
+    return null
+  }
 }
 
 // Load the main repo's grove.config.jsonc (never the invoking worktree's copy),

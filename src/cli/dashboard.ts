@@ -35,6 +35,7 @@ import {
   mainRepoRoot,
   portsInUse,
   readInstances,
+  repoColor,
   spawnDetached,
 } from '../lib/instances.ts'
 import { isSingleConfig } from '../lib/instances-utils.ts'
@@ -198,7 +199,10 @@ export function serve(): void {
         }
         return new Response('unknown action', { status: 404 })
       }
-      if (action === 'meta') return Response.json({ repoName, repoRoot })
+      if (action === 'meta') {
+        // Read per request so a hand edit to ~/.groverc shows on the next page load.
+        return Response.json({ repoName, repoRoot, color: repoColor(repoRoot) })
+      }
       if (action === 'rows') return Response.json(await apiRows())
       if (action === 'logs' && name) {
         // Guard name first: it now flows into a filesystem path (path-traversal).
