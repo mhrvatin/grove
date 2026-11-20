@@ -143,27 +143,62 @@ function pad(n: number, len = 2): string {
   return String(n).padStart(len, '0')
 }
 
+type Fields = Record<string, unknown>
+
+function isErrorLike(v: unknown): v is Fields {
+  return typeof v === 'object' && v !== null && typeof (v as Fields)['stack'] === 'string'
+}
+
+function keyVals(o: Fields): string {
+  return Object.keys(o)
+    .map((k) => `${k}=${typeof o[k] === 'object' ? JSON.stringify(o[k]) : o[k]}`)
+    .join(' ')
+}
+
+// A pino-serialized error (`{type,message,stack,...,cause}`) as indented lines:
+// the stack (which already carries `Name: message`), any extra fields, then the
+// cause chain. Keeps a fatal error readable instead of one escaped JSON blob.
+function errorLines(label: string, err: Fields): string[] {
+  const { type, message, stack, name: _name, cause, ...props } = err
+  const text = stack || `${type ?? 'Error'}: ${message ?? ''}`
+  const [first = '', ...more] = String(text).split('\n')
+  const lines = [`  ${label}: ${first}`, ...more.map((l) => `  ${l}`)]
+  const extra = keyVals(props)
+  if (extra) lines.push(`  ${extra}`)
+  if (isErrorLike(cause)) lines.push(...errorLines('caused by', cause))
+  return lines
+}
+
 // Pino emits one-line JSON (not pino-pretty) when stdout is piped to a file, so
 // the dashboard sees `{"time":<epoch-ms>,...}` with no human stamp. Render each
-// pino line as `HH:mm:ss.SSS LEVEL msg key=val` in local time. Non-pino lines
-// (vite/bun banners, stack traces, plain text) pass through unchanged.
+// pino line as `HH:mm:ss.SSS LEVEL msg key=val` in local time, with serialized
+// errors expanded onto indented lines below. Non-pino lines (vite/bun banners,
+// stack traces, plain text) pass through unchanged.
 function formatPinoLine(line: string): string {
   if (!line.startsWith('{')) return line
-  let o: Record<string, unknown>
+  let o: Fields
   try {
     o = JSON.parse(line)
   } catch {
     return line
   }
   const { time, level, msg, ...rest } = o
-  if (typeof time !== 'number' || typeof level !== 'number') return line
+  if (typeof time !== 'number') return line
+  let name: string
+  if (typeof level === 'number') name = PINO_LEVELS[level] ?? String(level)
+  else if (typeof level === 'string') name = level.toUpperCase()
+  else return line
   const d = new Date(time)
   const ts = `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}.${pad(d.getMilliseconds(), 3)}`
-  const name = PINO_LEVELS[level] ?? String(level)
-  const extra = Object.keys(rest)
-    .map((k) => `${k}=${typeof rest[k] === 'object' ? JSON.stringify(rest[k]) : rest[k]}`)
-    .join(' ')
-  return `${ts} ${name} ${msg ?? ''}${extra ? ` ${extra}` : ''}`.trimEnd()
+  const plain: Fields = {}
+  const errors: string[] = []
+  for (const [k, v] of Object.entries(rest)) {
+    if (isErrorLike(v)) errors.push(...errorLines(k, v))
+    else plain[k] = v
+  }
+  const extra = keyVals(plain)
+  const head = `${ts} ${name} ${msg ?? ''}${extra ? ` ${extra}` : ''}`.trimEnd()
+  return [head, ...errors].join('\n')
 }
 
 export function formatPinoLog(text: string): string {

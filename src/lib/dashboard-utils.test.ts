@@ -246,6 +246,58 @@ describe('formatPinoLog', () => {
   test('leaves JSON without time/level alone', () => {
     expect(formatPinoLog('{"foo":1}')).toBe('{"foo":1}')
   })
+
+  test('accepts a string level label', () => {
+    const at = new Date(2026, 0, 1, 0, 0, 0, 0).getTime()
+    const line = JSON.stringify({ level: 'fatal', time: at, msg: 'boom' })
+    expect(formatPinoLog(line)).toBe('00:00:00.000 FATAL boom')
+  })
+
+  test('expands a serialized error into its stack, extra fields and cause chain', () => {
+    const at = new Date(2026, 0, 1, 0, 0, 0, 0).getTime()
+    const line = JSON.stringify({
+      level: 60,
+      time: at,
+      msg: 'replay failed',
+      pid: 1,
+      err: {
+        type: 'DrizzleQueryError',
+        message: 'Failed query\nparams: []',
+        stack: 'Error: Failed query\nparams: []\n    at q (a.js:1:1)',
+        query: '[Redacted]',
+        cause: {
+          type: 'PostgresError',
+          message: 'no relation',
+          stack: 'PostgresError: no relation\n    at e (b.js:2:2)',
+          name: 'PostgresError',
+          code: '42P01',
+        },
+      },
+    })
+    expect(formatPinoLog(line)).toBe(
+      [
+        '00:00:00.000 FATAL replay failed pid=1',
+        '  err: Error: Failed query',
+        '  params: []',
+        '      at q (a.js:1:1)',
+        '  query=[Redacted]',
+        '  caused by: PostgresError: no relation',
+        '      at e (b.js:2:2)',
+        '  code=42P01',
+      ].join('\n'),
+    )
+  })
+
+  test('falls back to type and message when an error stack is empty', () => {
+    const at = new Date(2026, 0, 1, 0, 0, 0, 0).getTime()
+    const line = JSON.stringify({
+      level: 50,
+      time: at,
+      msg: 'x',
+      err: { type: 'Error', message: 'm', stack: '' },
+    })
+    expect(formatPinoLog(line)).toBe('00:00:00.000 ERROR x\n  err: Error: m')
+  })
 })
 
 describe('rowStatus', () => {
